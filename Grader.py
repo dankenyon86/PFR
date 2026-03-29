@@ -4,8 +4,7 @@ import io
 import re
 
 st.set_page_config(page_title="PFR Fraud Detective", layout="wide")
-st.title("🕵️ PFR Full Fraud Detective")
-
+st.title("🕵️ PFR Auto Screener")
 # --- Helper Functions ---
 def normalize(text):
     return re.sub(r'[^a-z0-9]', '', str(text).lower()).strip()
@@ -15,12 +14,12 @@ col1, col2 = st.columns(2)
 with col1:
     resp_file = st.file_uploader("1. Upload Call List", type=["csv", "xlsx"])
 with col2:
-    screen_file = st.file_uploader("2. Upload PFR Screener", type=["xlsx"])
+    screen_file = st.file_uploader("2. Upload Screener", type=["xlsx"])
 
 # --- SIDEBAR SETTINGS ---
 st.sidebar.header("🛡️ Fraud Sensitivity")
 phone_match_len = st.sidebar.slider("Phone Number Match Length", 5, 11, 10)
-speed_threshold = st.sidebar.number_input("Fast Response Threshold (Secs)", value=45)
+speed_threshold = st.sidebar.number_input("Fast Response Threshold (Secs)", value=60)
 
 if resp_file and screen_file:
     try:
@@ -76,7 +75,7 @@ if resp_file and screen_file:
         st.divider()
 
         # --- STEP 5: RUN AUDIT ---
-        if st.button("🚀 Run Full Audit"):
+        if st.button("🚀 Run Screener and Checks"):
             # A. SCREENER GRADING
             def grade_row(row):
                 for q, bad_vals in final_rules.items():
