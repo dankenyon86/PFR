@@ -22,7 +22,7 @@ if check_password():
     st.title("🕵️ PFR Candidate Checker")
 
     def check_ipqs_phone(phone_number, api_key):H67E8mmH292LeSaTgbrufW5qzj68VEnG
-        if not api_key: return None
+    if not api_key: return None
         clean_num = re.sub(r'\D', '', str(phone_number))
         url = f"https://www.ipqualityscore.com/api/json/phone/validate/{api_key}/{clean_num}"
         try:
