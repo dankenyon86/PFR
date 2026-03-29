@@ -27,27 +27,20 @@ st.title("🕵️ PFR Candidate Checker")
 
 # --- 4. SMART API FUNCTIONS ---
 def check_ipqs_phone(phone_number, api_key):
-    """Cleans and validates phone numbers via IPQualityScore API."""
-    if not api_key or pd.isna(phone_number): 
-        return None
-    
-    # Clean: Remove everything except digits
+    if not api_key or pd.isna(phone_number): return None
     clean_num = re.sub(r'\D', '', str(phone_number))
-    
-    # Format for UK: Convert 07... to 447...
     if clean_num.startswith('07') and len(clean_num) == 11:
         clean_num = '44' + clean_num[1:]
     elif clean_num.startswith('7') and len(clean_num) == 10:
         clean_num = '44' + clean_num
-    
     url = f"https://www.ipqualityscore.com/api/json/phone/validate/{api_key}/{clean_num}"
     try:
         res = requests.get(url, timeout=5).json()
         return res if res.get('success') else None
-    except: 
-        return None
+    except: return None
 
 def normalize(text):
+    """Deep cleaning for strings to ensure matching works."""
     return re.sub(r'[^a-z0-9]', '', str(text).lower()).strip()
 
 # --- 5. LOADERS ---
@@ -70,20 +63,22 @@ if st.sidebar.button("Logout"):
 # --- 7. MAIN LOGIC ---
 if resp_file and screen_file:
     try:
-        # Load Data + BOM Fix
+        # Load Data + Aggressive BOM/Sanitization
         if resp_file.name.endswith('.csv'):
             df_resp = pd.read_csv(resp_file, encoding='utf-8-sig')
         else:
             df_resp = pd.read_excel(resp_file)
         
-        # Sanitize Headers
+        # Clean Headers: Strip BOM, Newlines, and Special Chars for matching
         df_resp.columns = [str(c).replace('\ufeff', '').replace('ï»¿', '').strip() for c in df_resp.columns]
         headers = df_resp.columns.tolist()
-        p_id_col = next((c for c in ['Participant ID', 'ID', 'Ref'] if c in df_resp.columns), headers[0])
+        norm_headers = [normalize(h) for h in headers]
+        
+        p_id_col = next((c for c in ['Participant ID', 'ID', 'Ref'] if c in headers), headers[0])
 
         # Find Phone Column
-        phone_cols = ['Mobile', 'Phone', 'Telephone', 'Tel', 'Mobile Number', 'Phone Number']
-        actual_phone_col = next((c for c in phone_cols if c in headers), None)
+        phone_patterns = ['mobile', 'phone', 'telephone', 'tel', 'mobilenumber', 'phonenumber']
+        actual_phone_col = next((headers[i] for i, nh in enumerate(norm_headers) if any(p in nh for p in phone_patterns)), None)
 
         # Load Screener
         raw_screen = pd.read_excel(screen_file, header=None)
@@ -94,14 +89,27 @@ if resp_file and screen_file:
         so_col = next((c for c in df_screen.columns if any(k in str(c).lower() for k in ["screen-out", "disqualify"])), None)
         logic_df = df_screen.dropna(subset=[a_col])
 
-        # --- STEP 1: MAPPING ---
+        # --- STEP 1: SCREENER MAPPING ---
         st.header("⚙️ Step 1: Screener Logic Mapping")
         final_rules, mapping = {}, {}
         for q_text in logic_df[q_col].unique():
             q_rows = logic_df[logic_df[q_col] == q_text]
             options = [str(o).strip() for o in q_rows[a_col].unique().tolist() if pd.notna(o)]
-            q_id = re.search(r'q\d+', str(q_text).lower()).group(0) if re.search(r'q\d+', str(q_text).lower()) else ""
-            def_idx = next((i for i, h in enumerate(headers) if q_id and q_id in h.lower()), 0)
+            
+            # --- IMPROVED AUTO-MATCHER ---
+            q_id_match = re.search(r'q\d+', str(q_text).lower())
+            q_id = q_id_match.group(0) if q_id_match else None
+            norm_q_text = normalize(q_text)[:20] # First 20 chars normalized
+            
+            def_idx = 0
+            for i, nh in enumerate(norm_headers):
+                if q_id and q_id in nh: # Match by Q1, Q2, etc.
+                    def_idx = i
+                    break
+                elif norm_q_text in nh: # Match by question text overlap
+                    def_idx = i
+                    break
+
             with st.expander(f"❓ {str(q_text).strip()[:100]}", expanded=False):
                 c1, c2 = st.columns([1, 2])
                 mapping[q_text] = c1.selectbox(f"CSV Column:", headers, index=def_idx, key=f"m_{hash(q_text)}")
@@ -128,16 +136,13 @@ if resp_file and screen_file:
             tracker = {"api_saved": 0}
             
             def audit_row(row):
-                # 1. Caution
                 if 'Caution' in row and pd.notna(row['Caution']) and str(row['Caution']).strip():
                     tracker["api_saved"] += 1
                     return pd.Series(["Rejected", "Caution Note", "N/A"])
-                # 2. Screener Logic
                 for q, bads in final_rules.items():
                     if str(row.get(mapping[q])).strip() in bads:
                         tracker["api_saved"] += 1
                         return pd.Series(["Rejected", f"Failed: {q}", "N/A"])
-                # 3. IPQS API
                 if ipqs_key and actual_phone_col:
                     res = check_ipqs_phone(row[actual_phone_col], ipqs_key)
                     if res:
@@ -150,7 +155,7 @@ if resp_file and screen_file:
                 df_audit = df_resp.copy()
                 df_audit[['Status', 'Reason', 'Carrier']] = df_audit.apply(audit_row, axis=1)
                 
-                # Fuzzy Patterns
+                # Patterns
                 q_cols = list(set(mapping.values()))
                 df_audit['Pattern'] = df_audit[q_cols].astype(str).agg('-'.join, axis=1)
                 fuzzy_groups, seen = [], set()
