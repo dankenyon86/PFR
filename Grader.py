@@ -13,16 +13,13 @@ def normalize(text):
     return re.sub(r'[^a-z0-9]', '', str(text).lower()).strip()
 
 def check_ipqs_phone(phone_number, api_key):
-    """Hits the IPQS API to check for VOIP and Fraud."""
     clean_num = re.sub(r'\D', '', str(phone_number))
     url = f"https://www.ipqualityscore.com/api/json/phone/validate/{api_key}/{clean_num}"
     try:
         response = requests.get(url, timeout=5)
         data = response.json()
-        if data.get('success'):
-            return data
+        return data if data.get('success') else None
     except: return None
-    return None
 
 # --- STEP 1: LOADERS ---
 col1, col2 = st.columns(2)
@@ -31,11 +28,10 @@ with col1:
 with col2:
     screen_file = st.file_uploader("2. Upload PFR Screener", type=["xlsx"])
 
-# --- SIDEBAR: API & SETTINGS ---
-st.sidebar.header("🔑 API & Fraud Logic")
+# --- SIDEBAR ---
+st.sidebar.header("🔑 API & Logic")
 ipqs_key = st.sidebar.text_input("IPQS API Key", type="password")
 reject_voip = st.sidebar.checkbox("Auto-Reject VOIP", value=True)
-st.sidebar.divider()
 phone_match_len = st.sidebar.slider("Phone Match Length", 5, 11, 10)
 fuzzy_threshold = st.sidebar.slider("Pattern Match %", 80, 100, 95)
 
@@ -44,75 +40,96 @@ if resp_file and screen_file:
         df_resp = pd.read_csv(resp_file, encoding='latin1') if resp_file.name.endswith('.csv') else pd.read_excel(resp_file)
         df_resp.columns = [str(c).strip() for c in df_resp.columns]
         call_list_headers = df_resp.columns.tolist()
-        
-        # Ensure Participant ID exists
         p_id_col = 'Participant ID' if 'Participant ID' in df_resp.columns else call_list_headers[0]
 
-        # --- STEP 2: SCREENER PARSER ---
+        # Parser
         raw_screen = pd.read_excel(screen_file, header=None)
         h_idx = next(i for i, row in raw_screen.iterrows() if str(row[0]).strip().lower() in ["question", "questions"])
         df_screen = pd.read_excel(screen_file, header=h_idx)
         df_screen.iloc[:, 0] = df_screen.iloc[:, 0].ffill()
-        logic_df = df_screen.dropna(subset=[df_screen.columns[1]])
-        
-        # Mapping UI (Simplified for brevity, use previous logic here)
-        st.info("Ensure questions are mapped in the sections above before running.")
+        q_col, a_col = df_screen.columns[0], df_screen.columns[1]
+        so_col = next((c for c in df_screen.columns if any(k in c.lower() for k in ["screen-out", "disqualify"])), None)
+        logic_df = df_screen.dropna(subset=[a_col])
 
-        # --- STEP 3: THE AUDIT ENGINE ---
+        # Mapping Logic
+        st.header("⚙️ Step 1: Mapping")
+        final_rules, mapping = {}, {}
+        for q_text in logic_df[q_col].unique():
+            q_rows = logic_df[logic_df[q_col] == q_text]
+            options = [str(o).strip() for o in q_rows[a_col].unique().tolist() if pd.notna(o)]
+            auto_rej = [str(r).strip() for r in q_rows[q_rows[so_col].astype(str).str.contains("Disqualify", case=False, na=False)][a_col].tolist() if str(r).strip() in options] if so_col else []
+            with st.expander(f"📂 {str(q_text).strip()[:100]}"):
+                c_l, c_r = st.columns([1, 2])
+                q_id = re.search(r'q\d+', str(q_text).lower()).group(0) if re.search(r'q\d+', str(q_text).lower()) else normalize(q_text)[:5]
+                mapping[q_text] = c_l.selectbox("Link CSV:", call_list_headers, index=next((i for i, h in enumerate(call_list_headers) if q_id in normalize(h)), 0), key=f"m_{hash(q_text)}")
+                final_rules[q_text] = [str(r).lower().strip() for r in c_r.multiselect("Reject if:", options, default=auto_rej, key=f"r_{hash(q_text)}")]
+
         if st.button("🚀 Run Optimized Audit"):
-            api_saved = 0
-            
-            def run_audit(row):
-                nonlocal api_saved
-                # 1. Caution Check
-                if 'Caution' in row and pd.notna(row['Caution']) and str(row['Caution']).strip() != "":
-                    api_saved += 1
-                    return pd.Series(["Rejected", "Caution Note", "N/A"])
-                
-                # 2. Screener Logic Check
-                # (Assuming final_rules and mapping are defined from Step 3 logic)
-                # If fail: api_saved += 1; return ...
+            # FIXED: We use a list to track saved count to avoid the 'nonlocal' syntax error
+            tracker = {"api_saved": 0}
 
-                # 3. IPQS Final Gate
+            def audit(row):
+                if 'Caution' in row and pd.notna(row['Caution']) and str(row['Caution']).strip() != "":
+                    tracker["api_saved"] += 1
+                    return pd.Series(["Rejected", "Caution Note", "N/A"])
+                for q, bads in final_rules.items():
+                    if str(row.get(mapping[q])).strip().lower() in bads:
+                        tracker["api_saved"] += 1
+                        return pd.Series(["Rejected", f"Failed: {q}", "N/A"])
                 if ipqs_key and 'Mobile' in row:
                     res = check_ipqs_phone(row['Mobile'], ipqs_key)
                     if res:
-                        if reject_voip and res.get('voip'):
-                            return pd.Series(["Rejected", f"VOIP ({res.get('carrier')})", res.get('carrier')])
+                        if reject_voip and res.get('voip'): return pd.Series(["Rejected", f"VOIP ({res.get('carrier')})", res.get('carrier')])
                         return pd.Series(["Qualified", "Pass", res.get('carrier')])
-                
                 return pd.Series(["Qualified", "Pass", "Unknown"])
 
-            # Apply Logic
-            df_resp[['Status', 'Reason', 'Carrier']] = df_resp.apply(run_audit, axis=1)
+            df_resp[['Status', 'Reason', 'Carrier']] = df_resp.apply(audit, axis=1)
 
-            # --- RESULTS DASHBOARD ---
+            # Fuzzy Matcher
+            q_cols = list(set(mapping.values()))
+            df_resp['Pattern'] = df_resp[q_cols].astype(str).agg(' '.join, axis=1)
+            fuzzy_groups, seen = [], set()
+            for i in range(len(df_resp)):
+                if i not in seen:
+                    cluster = [j for j in range(i+1, len(df_resp)) if fuzz.ratio(df_resp.iloc[i]['Pattern'], df_resp.iloc[j]['Pattern']) >= fuzzy_threshold]
+                    if cluster: 
+                        cluster.insert(0, i)
+                        fuzzy_groups.append(cluster)
+                        seen.update(cluster)
+
+            # Results Display
             st.header("📊 Results")
             c1, c2, c3 = st.columns(3)
             c1.metric("✅ Qualified", (df_resp['Status'] == "Qualified").sum())
             c2.metric("❌ Rejected", (df_resp['Status'] == "Rejected").sum())
-            c3.metric("💰 API Credits Saved", api_saved)
+            c3.metric("💰 API Credits Saved", tracker["api_saved"])
 
-            # --- TABBED VIEW ---
-            t1, t2, t3 = st.tabs(["🔍 Manual Review", "📶 Carrier Insights", "📥 Download"])
-
+            t1, t2, t3, t4 = st.tabs(["👥 Patterns", "📱 Clusters", "🔍 Force Check", "📥 Export"])
+            
             with t1:
-                st.subheader("Review Rejected Applicants")
-                rejected_df = df_resp[df_resp['Status'] == "Rejected"]
-                for _, r in rejected_df.iterrows():
-                    col_text, col_btn = st.columns([4, 1])
-                    col_text.write(f"**{r[p_id_col]}**: {r['Forename']} {r['Surname']} (Reason: {r['Reason']})")
-                    if col_btn.button("Force IPQS Check", key=f"check_{r[p_id_col]}"):
-                        res = check_ipqs_phone(r['Mobile'], ipqs_key)
-                        st.write(res) # Show live data for this specific person
-
+                for g in fuzzy_groups:
+                    with st.expander(f"🚩 Near-Identical Group ({len(g)})"): st.table(df_resp.iloc[g][[p_id_col, 'Forename', 'Surname', 'Status']])
+            
             with t2:
-                st.subheader("Mobile Carrier Distribution")
-                carrier_counts = df_resp['Carrier'].value_counts()
-                st.bar_chart(carrier_counts)
-
+                if 'Mobile' in df_resp.columns:
+                    df_resp['P_Clean'] = df_resp['Mobile'].astype(str).str.replace(r'\D', '', regex=True).str[:phone_match_len]
+                    for prefix, group in df_resp[df_resp.duplicated('P_Clean', keep=False)].groupby('P_Clean'):
+                        with st.expander(f"🚩 Cluster: {prefix}XXXX"): st.table(group[[p_id_col, 'Forename', 'Surname', 'Mobile']])
+            
             with t3:
-                st.download_button("Download Report", df_resp.to_csv(index=False).encode('utf-8-sig'), "pfr_audit.csv")
+                for _, r in df_resp[df_resp['Status'] == "Rejected"].iterrows():
+                    cl, cr = st.columns([4, 1])
+                    cl.write(f"**{r[p_id_col]}**: {r['Forename']} {r['Surname']} ({r['Reason']})")
+                    if cr.button("Check Phone", key=f"f_{r[p_id_col]}"): st.write(check_ipqs_phone(r['Mobile'], ipqs_key))
+            
+            with t4:
+                # Add a filter before downloading
+                filter_choice = st.radio("Download Scope:", ["All Records", "Qualified Only", "Rejected Only"], horizontal=True)
+                df_out = df_resp.copy()
+                if filter_choice == "Qualified Only": df_out = df_resp[df_resp['Status'] == "Qualified"]
+                elif filter_choice == "Rejected Only": df_out = df_resp[df_resp['Status'] == "Rejected"]
+                
+                st.dataframe(df_out)
+                st.download_button("📥 Download Filtered CSV", df_out.to_csv(index=False).encode('utf-8-sig'), "pfr_audit_report.csv")
 
-    except Exception as e:
-        st.error(f"Audit Error: {e}")
+    except Exception as e: st.error(f"Error: {e}")
