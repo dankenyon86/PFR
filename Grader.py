@@ -11,36 +11,42 @@ st.set_page_config(page_title="PFR Candidate Checker", layout="wide")
 if "password_correct" not in st.session_state:
     st.session_state["password_correct"] = False
 
+def login_callback():
+    if st.session_state["pwd_input"] == "BruceWillis":
+        st.session_state["password_correct"] = True
+    else:
+        st.error("❌ Incorrect password.")
+
 if not st.session_state["password_correct"]:
     st.title("🔐 PFR Internal Security")
-    pw = st.text_input("Enter PFR Access Code:", type="password")
+    st.text_input("Enter PFR Access Code:", type="password", key="pwd_input", on_change=login_callback)
     if st.button("Unlock Checker"):
-        if pw == "BruceWillis":
-            st.session_state["password_correct"] = True
-            st.rerun()
-        else:
-            st.error("❌ Incorrect password.")
+        login_callback()
     st.stop()
 
 # --- 3. APP START ---
-st.title("🕵️ PFR Candidate Checker")
+st.title("🕵️ PFR Candidate Checker (Master Build)")
 
-# --- 4. SMART API FUNCTIONS ---
-def check_ipqs_phone(phone_number, api_key):
-    if not api_key or pd.isna(phone_number): return None
-    clean_num = re.sub(r'\D', '', str(phone_number))
-    if clean_num.startswith('07') and len(clean_num) == 11:
-        clean_num = '44' + clean_num[1:]
-    elif clean_num.startswith('7') and len(clean_num) == 10:
-        clean_num = '44' + clean_num
-    url = f"https://www.ipqualityscore.com/api/json/phone/validate/{api_key}/{clean_num}"
+# --- 4. SMART WORLDWIDE API FUNCTION ---
+def check_ipqs_phone(phone_number, api_key, default_country_iso, default_dial_code):
+    if not api_key or pd.isna(phone_number): 
+        return None
+    raw_val = str(phone_number).strip()
+    clean_num = re.sub(r'[^0-9+]', '', raw_val)
+    if not clean_num.startswith('+'):
+        if clean_num.startswith('0'):
+            clean_num = clean_num[1:]
+        clean_num = default_dial_code + clean_num
+    else:
+        clean_num = clean_num.replace('+', '')
+    url = f"https://www.ipqualityscore.com/api/json/phone/{api_key}/{clean_num}"
     try:
-        res = requests.get(url, timeout=5).json()
-        return res if res.get('success') else None
+        res = requests.get(url, params={'country': default_country_iso}, timeout=5)
+        data = res.json()
+        return data if data.get('success') else None
     except: return None
 
 def normalize(text):
-    """Deep cleaning for strings to ensure matching works."""
     return re.sub(r'[^a-z0-9]', '', str(text).lower()).strip()
 
 # --- 5. LOADERS ---
@@ -53,8 +59,19 @@ with col2:
 # --- 6. SIDEBAR SETTINGS ---
 st.sidebar.header("⚙️ Logic Settings")
 ipqs_key = "H67E8mmH292LeSaTgbrufW5qzj68VEnG" 
+
+country_map = {
+    "United Kingdom (44)": ("GB", "44"),
+    "USA / Canada (1)": ("US", "1"),
+    "Australia (61)": ("AU", "61"),
+    "Germany (49)": ("DE", "49"),
+    "Ireland (353)": ("IE", "353")
+}
+country_label = st.sidebar.selectbox("Default Country (if no + provided)", list(country_map.keys()))
+iso_code, dial_code = country_map[country_label]
+
 reject_voip = st.sidebar.checkbox("Auto-Reject VOIP", value=True)
-fuzzy_threshold = st.sidebar.slider("Fuzzy Match Sensitivity %", 80, 100, 95)
+fuzzy_threshold = st.sidebar.slider("Fuzzy Pattern Sensitivity %", 80, 100, 95)
 
 if st.sidebar.button("Logout"):
     st.session_state["password_correct"] = False
@@ -63,24 +80,20 @@ if st.sidebar.button("Logout"):
 # --- 7. MAIN LOGIC ---
 if resp_file and screen_file:
     try:
-        # Load Data + Aggressive BOM/Sanitization
         if resp_file.name.endswith('.csv'):
             df_resp = pd.read_csv(resp_file, encoding='utf-8-sig')
         else:
             df_resp = pd.read_excel(resp_file)
         
-        # Clean Headers: Strip BOM, Newlines, and Special Chars for matching
         df_resp.columns = [str(c).replace('\ufeff', '').replace('ï»¿', '').strip() for c in df_resp.columns]
         headers = df_resp.columns.tolist()
         norm_headers = [normalize(h) for h in headers]
-        
         p_id_col = next((c for c in ['Participant ID', 'ID', 'Ref'] if c in headers), headers[0])
 
-        # Find Phone Column
-        phone_patterns = ['mobile', 'phone', 'telephone', 'tel', 'mobilenumber', 'phonenumber']
-        actual_phone_col = next((headers[i] for i, nh in enumerate(norm_headers) if any(p in nh for p in phone_patterns)), None)
+        actual_phone_col = next((headers[i] for i, nh in enumerate(norm_headers) if any(p in nh for p in ['mob', 'tel', 'phone'])), None)
+        if actual_phone_col: st.sidebar.success(f"📱 API Linked: {actual_phone_col}")
 
-        # Load Screener
+        # Screener Logic
         raw_screen = pd.read_excel(screen_file, header=None)
         h_idx = next(i for i, row in raw_screen.iterrows() if str(row[0]).strip().lower() in ["question", "questions"])
         df_screen = pd.read_excel(screen_file, header=h_idx)
@@ -89,52 +102,33 @@ if resp_file and screen_file:
         so_col = next((c for c in df_screen.columns if any(k in str(c).lower() for k in ["screen-out", "disqualify"])), None)
         logic_df = df_screen.dropna(subset=[a_col])
 
-        # --- STEP 1: SCREENER MAPPING ---
         st.header("⚙️ Step 1: Screener Logic Mapping")
         final_rules, mapping = {}, {}
         for q_text in logic_df[q_col].unique():
             q_rows = logic_df[logic_df[q_col] == q_text]
             options = [str(o).strip() for o in q_rows[a_col].unique().tolist() if pd.notna(o)]
-            
-            # --- IMPROVED AUTO-MATCHER ---
-            q_id_match = re.search(r'q\d+', str(q_text).lower())
-            q_id = q_id_match.group(0) if q_id_match else None
-            norm_q_text = normalize(q_text)[:20] # First 20 chars normalized
-            
-            def_idx = 0
-            for i, nh in enumerate(norm_headers):
-                if q_id and q_id in nh: # Match by Q1, Q2, etc.
-                    def_idx = i
-                    break
-                elif norm_q_text in nh: # Match by question text overlap
-                    def_idx = i
-                    break
-
+            q_id = re.search(r'q\d+', str(q_text).lower()).group(0) if re.search(r'q\d+', str(q_text).lower()) else ""
+            def_idx = next((i for i, h in enumerate(headers) if q_id and q_id in h.lower()), 0)
             with st.expander(f"❓ {str(q_text).strip()[:100]}", expanded=False):
                 c1, c2 = st.columns([1, 2])
-                mapping[q_text] = c1.selectbox(f"CSV Column:", headers, index=def_idx, key=f"m_{hash(q_text)}")
+                mapping[q_text] = c1.selectbox(f"CSV Col:", headers, index=def_idx, key=f"m_{hash(q_text)}")
                 auto_rej = [str(r).strip() for r in q_rows[q_rows[so_col].astype(str).str.contains("Disqualify", case=False, na=False)][a_col].tolist()] if so_col else []
                 final_rules[q_text] = c2.multiselect("Reject if:", options, default=[r for r in auto_rej if r in options], key=f"r_{hash(q_text)}")
 
-        # --- STEP 2: COMPARISON ---
-        st.header("⚖️ Step 2: Profile vs. Screener Comparison")
+        st.header("⚖️ Step 2: Comparison Pairs")
         if 'consistency_pairs' not in st.session_state: st.session_state.consistency_pairs = 1
         consistency_rules = []
         for i in range(st.session_state.consistency_pairs):
             c1, c2 = st.columns(2)
-            col_a = c1.selectbox(f"Pair {i+1}: Profile Data", ["None"] + headers, key=f"pa_{i}")
-            col_b = c2.selectbox(f"Pair {i+1}: Screener Data", ["None"] + headers, key=f"pb_{i}")
+            col_a = c1.selectbox(f"Profile Col", ["None"] + headers, key=f"pa_{i}")
+            col_b = c2.selectbox(f"Screener Col", ["None"] + headers, key=f"pb_{i}")
             if col_a != "None" and col_b != "None": consistency_rules.append((col_a, col_b))
         if st.button("➕ Add Another Pair"):
             st.session_state.consistency_pairs += 1
             st.rerun()
 
-        st.divider()
-
-        # --- STEP 3: RUN ---
         if st.button("🚀 Run Full Audit"):
             tracker = {"api_saved": 0}
-            
             def audit_row(row):
                 if 'Caution' in row and pd.notna(row['Caution']) and str(row['Caution']).strip():
                     tracker["api_saved"] += 1
@@ -144,59 +138,55 @@ if resp_file and screen_file:
                         tracker["api_saved"] += 1
                         return pd.Series(["Rejected", f"Failed: {q}", "N/A"])
                 if ipqs_key and actual_phone_col:
-                    res = check_ipqs_phone(row[actual_phone_col], ipqs_key)
+                    res = check_ipqs_phone(row[actual_phone_col], ipqs_key, iso_code, dial_code)
                     if res:
-                        carrier = res.get('carrier', 'Unknown')
+                        carrier = res.get('carrier', 'Valid')
                         if reject_voip and res.get('voip'): return pd.Series(["Rejected", f"VOIP ({carrier})", carrier])
                         return pd.Series(["Qualified", "Pass", carrier])
                 return pd.Series(["Qualified", "Pass", "Unknown"])
 
-            with st.spinner("Analyzing integrity..."):
-                df_audit = df_resp.copy()
-                df_audit[['Status', 'Reason', 'Carrier']] = df_audit.apply(audit_row, axis=1)
-                
-                # Patterns
+            with st.spinner("Analyzing..."):
+                df_resp[['Status', 'Reason', 'Carrier']] = df_resp.apply(audit_row, axis=1)
                 q_cols = list(set(mapping.values()))
-                df_audit['Pattern'] = df_audit[q_cols].astype(str).agg('-'.join, axis=1)
+                df_resp['Pattern'] = df_resp[q_cols].astype(str).agg('-'.join, axis=1)
                 fuzzy_groups, seen = [], set()
-                for i in range(len(df_audit)):
+                for i in range(len(df_resp)):
                     if i in seen: continue
-                    p_i = df_audit.iloc[i]['Pattern']
+                    p_i = df_resp.iloc[i]['Pattern']
                     group = [i]
-                    for j in range(i+1, len(df_audit)):
-                        if fuzz.ratio(p_i, df_audit.iloc[j]['Pattern']) >= fuzzy_threshold:
+                    for j in range(i+1, len(df_resp)):
+                        if fuzz.ratio(p_i, df_resp.iloc[j]['Pattern']) >= fuzzy_threshold:
                             group.append(j); seen.add(j)
                     if len(group) > 1: fuzzy_groups.append(group)
 
-            st.header("📊 Audit Results")
+            st.header("📊 Results")
             m1, m2, m3 = st.columns(3)
-            m1.metric("✅ Qualified", (df_audit['Status'] == "Qualified").sum())
-            m2.metric("❌ Rejected", (df_audit['Status'] == "Rejected").sum())
-            m3.metric("💰 API Credits Saved", tracker["api_saved"])
+            m1.metric("✅ Qualified", (df_resp['Status'] == "Qualified").sum())
+            m2.metric("❌ Rejected", (df_resp['Status'] == "Rejected").sum())
+            m3.metric("💰 API Saved", tracker["api_saved"])
 
-            tabs = st.tabs(["🚩 Patterns", "⚖️ Mismatches", "🔍 Detailed Review", "📥 Export"])
-            with tabs[0]:
+            t1, t2, t3, t4 = st.tabs(["🚩 Patterns", "⚖️ Mismatches", "🔍 Detailed Review", "📥 Export"])
+            with t1:
                 for g in fuzzy_groups:
-                    with st.expander(f"🚩 Cluster: {len(g)} Suspects"):
-                        st.table(df_audit.iloc[g][[p_id_col, 'Forename', 'Surname', 'Status']])
-            with tabs[1]:
+                    with st.expander(f"🚩 Cluster ({len(g)} Candidates)"):
+                        st.table(df_resp.iloc[g][[p_id_col, 'Forename', 'Surname', 'Status']])
+            with t2:
                 for ca, cb in consistency_rules:
-                    mismatches = df_audit[df_audit[ca].apply(normalize) != df_audit[cb].apply(normalize)]
+                    mismatches = df_resp[df_resp[ca].astype(str).apply(normalize) != df_resp[cb].astype(str).apply(normalize)]
                     if not mismatches.empty:
                         st.error(f"Mismatch: {ca} vs {cb}")
-                        st.table(mismatches[[p_id_col, ca, cb, 'Status']])
-            with tabs[2]:
-                search = st.text_input("Search ID to Review:")
-                r_list = df_audit[df_audit['Status'] == "Rejected"]
+                        st.table(mismatches[[p_id_col, ca, cb]])
+            with t3:
+                search = st.text_input("Search ID to Force Check:")
+                r_list = df_resp[df_resp['Status'] == "Rejected"]
                 if search: r_list = r_list[r_list[p_id_col].astype(str).str.contains(search)]
                 for _, r in r_list.iterrows():
                     cl, cr = st.columns([4, 1])
                     cl.write(f"**{r[p_id_col]}**: {r['Forename']} {r['Surname']} ({r['Reason']})")
-                    if actual_phone_col and cr.button("Check Phone", key=f"f_{r[p_id_col]}"): 
-                        st.json(check_ipqs_phone(r[actual_phone_col], ipqs_key))
-            with tabs[3]:
-                st.dataframe(df_audit)
-                st.download_button("📥 Download Final Report", df_audit.to_csv(index=False).encode('utf-8-sig'), "pfr_audit.csv")
+                    if actual_phone_col and cr.button("Check Phone", key=f"f_{r[p_id_col]}"):
+                        st.json(check_ipqs_phone(r[actual_phone_col], ipqs_key, iso_code, dial_code))
+            with t4:
+                st.dataframe(df_resp)
+                st.download_button("Download Audit", df_resp.to_csv(index=False).encode('utf-8-sig'), "pfr_audit.csv")
 
-    except Exception as e:
-        st.error(f"Critical Error: {e}")
+    except Exception as e: st.error(f"Error: {e}")
