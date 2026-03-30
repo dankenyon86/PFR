@@ -105,7 +105,6 @@ def create_pdf_report(df, report_cols, project_name, mode):
             ax.set_title(f"Distribution: {col}", fontsize=10)
             plt.tight_layout()
 
-            # Fix: Save to a real temporary file so FPDF can process the path string
             with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
                 plt.savefig(tmp.name, format='png', dpi=150)
                 tmp_path = tmp.name
@@ -114,14 +113,11 @@ def create_pdf_report(df, report_cols, project_name, mode):
             pdf.image(tmp_path, x=15, w=180)
             plt.close(fig)
             
-            # Clean up the temporary file immediately
             if os.path.exists(tmp_path):
                 os.remove(tmp_path)
 
     return pdf.output(dest='S').encode('latin-1')
 
-
-# --- STREAMLIT CONFIG ---
 st.set_page_config(page_title="PFR Client Reporting Tool", layout="wide")
 
 st.markdown("""
@@ -132,7 +128,6 @@ span[data-baseweb="tag"] {
 </style>
 """, unsafe_allow_html=True)
 
-# --- UI ---
 st.title("📊 PFR Client Report Generator")
 st.markdown("Convert call lists into anonymised, client-ready Excel & PDF reports.")
 
@@ -158,7 +153,15 @@ if uploaded_file:
     headers = df.columns.tolist()
 
     if os.path.exists("PFRLogo.png"):
-        st.sidebar.image("PFRLogo.png", width=250)
+        st.sidebar.markdown(
+        f"""
+        <div style="margin-left: 40px;">
+            <img src="data:image/png;base64,{base64.b64encode(open("PFRLogo.png", "rb").read()).decode()}" width="250">
+        </div>
+        """, 
+        unsafe_allow_html=True
+    )
+Option 2: The Logic Integration
 
     st.sidebar.header("🛡️ Privacy Settings")
     default_pii = [c for c in headers if any(k in c.lower() for k in ['phone','tel','email','name','mobile','address','postcode','ip'])]
