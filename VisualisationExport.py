@@ -224,7 +224,6 @@ if uploaded_file:
                     dynamic_width = max(550, len(stats_df) * 50)
                     
                     # --- CHART 1 (COUNT) ---
-                    # Switching to 'bar' (horizontal) which handles verbose survey text perfectly
                     chart1 = workbook.add_chart({'type': 'bar'})
                     chart1.set_size({'width': dynamic_width, 'height': dynamic_height})
                     
