@@ -52,6 +52,17 @@ if uploaded_file:
     else:
         df = pd.read_excel(uploaded_file)
 
+     # Map hardcoded qualification status codes to clean readable strings
+    status_map = {
+        14: '14 - Not Suitable', '14': '14 - Not Suitable',
+        19: '19 - Applied', '19': '19 - Applied',
+        23: '23 - Invited', '23': '23 - Invited',
+        30: '30 - Completed Task', '30': '30 - Completed Task',
+        33: '33 - Suitable', '33': '33 - Suitable'
+    }
+    if 'Status' in df.columns:
+        df['Status'] = df['Status'].replace(status_map)
+
     headers = df.columns.tolist()
     
     if os.path.exists("PFRLogo.png"):
