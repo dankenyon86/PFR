@@ -64,8 +64,12 @@ screen_file = col2.file_uploader("2. Upload PFR Screener (Logic)", type=["xlsx"]
 if resp_file and screen_file:
     # Load Data
     df = pd.read_csv(resp_file, encoding='utf-8-sig') if resp_file.name.endswith('.csv') else pd.read_excel(resp_file)
+    
+    # --- SAFETY SHIELD: REMOVE DUPLICATES IMMEDIATELY ---
     df.columns = [str(c).replace('\ufeff', '').replace('ï»¿', '').strip() for c in df.columns]
+    # This kills duplicate columns in the raw upload (like 'Status' or 'Participant ID')
     df = df.loc[:, ~df.columns.duplicated()].copy()
+    
     headers = df.columns.tolist()
     norm_headers = [normalize(h) for h in headers]
     
@@ -108,7 +112,10 @@ if resp_file and screen_file:
 
     # --- 6. AUDIT ---
     if st.button("🚀 Run Full Audit"):
-        df = df.drop(columns=[c for c in ['Status', 'Reason', 'Carrier', 'Risk %', 'Pattern', 'ClusterFlag'] if c in df.columns])
+        # CLEAR OLD RESULTS
+        result_cols = ['Status', 'Reason', 'Carrier', 'Risk %', 'Pattern', 'ClusterFlag']
+        df = df.drop(columns=[c for c in result_cols if c in df.columns])
+        
         prog_bar = st.progress(0)
 
         # 1. Clustering
@@ -137,17 +144,16 @@ if resp_file and screen_file:
                 if r: api_results[r["phone"]] = r
                 prog_bar.progress(30 + int((i / len(unique_phones)) * 60))
 
-        # 3. Final Scoring
+        # 3. Scoring
         def audit_row(row):
             behav_score = 0
             if row['ClusterFlag']: behav_score += weight_pattern
             for ca, cb in consistency_rules:
                 if normalize(row.get(ca)) != normalize(row.get(cb)): behav_score += weight_mismatch
             
-            # Hard Rejects (Screener)
             for q, bads in final_rules.items():
                 if str(row.get(mapping[q])).strip() in bads:
-                    return pd.Series(["Rejected", f"Screener Fail", "N/A", behav_score])
+                    return pd.Series(["Rejected", "Screener Fail", "N/A", behav_score])
             
             api_fraud, carrier = 0, "N/A"
             if row.get(phone_col) in api_results:
@@ -164,7 +170,7 @@ if resp_file and screen_file:
         prog_bar.progress(100)
         st.success("✅ Audit Complete!")
 
-        # --- UPDATED RESULTS VIEW ---
+        # --- UPDATED RESULTS VIEW (FIXED DUPLICATE ERROR) ---
         t_data, t_qc, t_export = st.tabs(["📋 Full Dataset", "🚩 High Risk QC", "📥 Export"])
         
         with t_data:
@@ -172,15 +178,17 @@ if resp_file and screen_file:
             d_df = df.copy()
             if view_choice == "Qualified": d_df = d_df[d_df['Status'] == "Qualified"]
             if view_choice == "Rejected": d_df = d_df[d_df['Status'] == "Rejected"]
-            st.dataframe(d_df[["Status", "Risk %", "Reason", "Carrier"] + headers])
+            
+            # THE FIX: Only show the original headers that DON'T overlap with our new columns
+            audit_cols = ["Status", "Risk %", "Reason", "Carrier"]
+            clean_headers = [c for c in headers if c not in audit_cols]
+            st.dataframe(d_df[audit_cols + clean_headers])
 
         with t_qc:
             st.subheader("Potential Bots / Fraud (Passed Screener)")
-            # ONLY SHOW PEOPLE WHO PASSED THE SCREENER BUT HAVE RISK > 0
             qc_df = df[(df['Status'] == "Qualified") & (df['Risk %'] > 0)].sort_values("Risk %", ascending=False)
-            
             if qc_df.empty:
-                st.success("No suspicious 'Qualified' candidates detected.")
+                st.success("No suspicious candidates detected.")
             else:
                 for idx, r in qc_df.iterrows():
                     with st.container(border=True):
