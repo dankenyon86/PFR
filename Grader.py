@@ -18,7 +18,7 @@ def login_callback():
         st.error("❌ Incorrect password.")
 
 if not st.session_state["password_correct"]:
-    st.title("🔐 PFR Internal Security")
+    st.title("🔐 PFR Password")
     st.text_input("Enter PFR Access Code:", type="password", key="pwd_input", on_change=login_callback)
     if st.button("Unlock Checker"):
         login_callback()
