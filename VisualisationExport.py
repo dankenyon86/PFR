@@ -157,7 +157,7 @@ if uploaded_file:
                 title_page.merge_range('A12:I13', clean_name, main_title_fmt)
                 
                 today = datetime.date.today().strftime("%d %B %Y")
-                title_page.merge_range('A15:I15', f"Date: {today}", meta_fmt)
+                title_page.merge_range('A15:I15', f"Created: {today}", meta_fmt)
                 title_page.merge_range('A16:I16', f"Total Sample Size: {len(df)} Respondents", meta_fmt)
                 
                 # 3. Aesthetic Divider
@@ -181,12 +181,12 @@ if uploaded_file:
                 
                 # Check for logo insertion
                 if os.path.exists(excel_logo_path):
-                    summary_sheet.insert_image('K1', excel_logo_path, {'x_scale': 0.18, 'y_scale': 0.18, 'x_offset': 10, 'y_offset': 4})
+                    summary_sheet.insert_image('A1', excel_logo_path, {'x_scale': 0.18, 'y_scale': 0.18, 'x_offset': 10, 'y_offset': 4})
                     
                 pct_format_col = workbook.add_format({'num_format': '0.0%'})
-                summary_sheet.set_column('A:A', 40)
-                summary_sheet.set_column('B:B', 12)
-                summary_sheet.set_column('C:C', 12, pct_format_col)
+                summary_sheet.set_column('B:B', 40)
+                summary_sheet.set_column('C:C', 12)
+                summary_sheet.set_column('D:D', 12, pct_format_col)
 
                 # Use user-selected columns for summary charts
                 demo_cols = report_graph_cols
