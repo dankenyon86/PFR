@@ -177,7 +177,7 @@ if uploaded_file:
                 })
                 
                 # Write Main Title
-                summary_sheet.merge_range('A1:H2', f"{clean_name.upper()} - METRICS", summary_header_fmt)
+                summary_sheet.merge_range('A1:H3', f"{clean_name.upper()} - METRICS", summary_header_fmt)
                 
                 # Check for logo insertion
                 if os.path.exists(excel_logo_path):
