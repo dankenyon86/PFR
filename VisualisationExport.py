@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import io
 import re
+import os
 
 def get_clean_value_counts(series):
     """Splits delimited strings (like ;) and returns cleaned value counts."""
@@ -32,7 +33,7 @@ st.set_page_config(page_title="PFR Client Reporting Tool", layout="wide")
 st.markdown("""
 <style>
 span[data-baseweb="tag"] {
-    background-color: #4472C4 !important;
+    background-color: #4F5D75 !important;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -53,6 +54,9 @@ if uploaded_file:
 
     headers = df.columns.tolist()
     
+    if os.path.exists("PFRLogo.gif"):
+        st.sidebar.image("PFRLogo.gif", width=250)
+        
     # --- 3. PII STRIPPING SETTINGS ---
     st.sidebar.header("🛡️ Privacy Settings")
     st.sidebar.info("Select columns to REMOVE from the client report (PII).")
@@ -105,14 +109,14 @@ if uploaded_file:
             
             # 3. Display with a generic index to avoid encoding errors
             with col_left.expander(f"📊 {selected_vis} Chart", expanded=True):
-                st.bar_chart(chart_data.set_index('Metric'), color="#2ECC71") # Modern Green
+                st.bar_chart(chart_data.set_index('Metric'), color="#EF8354") # Soft Coral/Orange
             
             # Qualification Rate (Same sanitization)
             if 'Status' in df.columns:
                 with col_right.expander("📋 Qualification Overview", expanded=True):
                     status_data = get_clean_value_counts(df['Status']).reset_index()
                     status_data.columns = ['Status_Label', 'Count']
-                    st.bar_chart(status_data.set_index('Status_Label'), color="#2ECC71") # Modern Green
+                    st.bar_chart(status_data.set_index('Status_Label'), color="#EF8354") # Soft Coral/Orange
             else:
                 col_right.warning("No 'Status' column found. Run the Auditor first for full metrics.")
 
@@ -144,17 +148,30 @@ if uploaded_file:
                 title_fmt = workbook.add_format({
                     'bold': True, 
                     'font_size': 16, 
-                    'font_color': '#ffffff', 
-                    'bg_color': '#4472C4', 
+                    'font_color': '#FFFFFF', 
+                    'bg_color': '#2D3142', 
                     'align': 'center',
                     'valign': 'vcenter'
                 })
-                stat_header_fmt = workbook.add_format({'bold': True, 'bottom': 1, 'font_size': 12, 'text_wrap': True, 'valign': 'top'})
+                stat_header_fmt = workbook.add_format({
+                    'bold': True, 
+                    'border': 1, 
+                    'font_size': 12, 
+                    'text_wrap': True, 
+                    'valign': 'top',
+                    'bg_color': '#4F5D75',
+                    'font_color': '#FFFFFF'
+                })
                 italic_fmt = workbook.add_format({'italic': True})
 
                 # Write Main Title
                 file_title = uploaded_file.name.split('.')[0].upper()
                 summary_sheet.merge_range('A1:H2', file_title, title_fmt)
+                
+                # Check for logo insertion
+                if os.path.exists("pfr_logo.png"):
+                    summary_sheet.insert_image('K1', 'pfr_logo.png', {'x_scale': 0.18, 'y_scale': 0.18, 'x_offset': 10, 'y_offset': 4})
+                    
                 summary_sheet.write('A4', f'Total Respondents: {len(df)}', italic_fmt)
 
                 pct_format_col = workbook.add_format({'num_format': '0.0%'})
@@ -181,9 +198,16 @@ if uploaded_file:
                         'Percentage': stats_series / stats_series.sum()
                     })
                     
-                    # Write values mapping index->0, Count->1, Percentage->2
-                    stats_df.to_excel(writer, sheet_name='Summary', startrow=current_row + 1, startcol=0, header=False)
+                    # Manually write the data blocks with full outline borders applied to all axes
+                    border_fmt = workbook.add_format({'border': 1, 'align': 'left'})
+                    border_pct_fmt = workbook.add_format({'border': 1, 'num_format': '0.0%', 'align': 'right'})
                     
+                    for idx, (label, row_data) in enumerate(stats_df.iterrows()):
+                        r = current_row + 1 + idx
+                        summary_sheet.write(r, 0, label, border_fmt)
+                        summary_sheet.write(r, 1, row_data['Count'], border_fmt)
+                        summary_sheet.write(r, 2, row_data['Percentage'], border_pct_fmt)
+                        
                     # Calculate dynamic dimensions for charts to prevent text overlap
                     # Horizontal bar charts need height dependent on number of categories
                     dynamic_height = max(350, len(stats_df) * 45)
@@ -202,7 +226,7 @@ if uploaded_file:
                             'value': True, 
                             'font': {'color': '#404040', 'size': 10}
                         },
-                        'fill': {'color': '#9E9E9E'}, # Millenial Grey
+                        'fill': {'color': '#EF8354'}, # Soft Coral/Orange
                         'border': {'none': True},     
                         'gap': 80                    
                     })
@@ -244,7 +268,7 @@ if uploaded_file:
                             'font': {'color': '#404040', 'size': 10},
                             'num_format': '0%'
                         },
-                        'fill': {'color': '#4472C4'}, # Corporate Blue for distinction
+                        'fill': {'color': '#4F5D75'}, # Muted Blue for distinction
                         'border': {'none': True},     
                         'gap': 80                    
                     })
