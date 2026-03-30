@@ -161,7 +161,7 @@ if resp_file and screen_file:
                     res = check_ipqs_phone(row[phone_col], ipqs_key, iso_code, dial_code)
                     if res:
                         api_score = res.get('fraud_score', 0)
-                        carrier = res.get('carrier', 'Valid')
+                        carrier = res.get('network', 'Valid')
                         if reject_voip and res.get('voip'): return pd.Series(["Rejected", f"VOIP ({carrier})", carrier, 100])
 
                 total = min(100, behav_score + api_score)
