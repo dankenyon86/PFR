@@ -54,8 +54,8 @@ if uploaded_file:
 
     headers = df.columns.tolist()
     
-    if os.path.exists("pfr_logo.png"):
-        st.sidebar.image("pfr_logo.png", width=250)
+    if os.path.exists("PFRLogo.png"):
+        st.sidebar.image("PFRLogo.png", width=250)
         
     # --- 3. PII STRIPPING SETTINGS ---
     st.sidebar.header("🛡️ Privacy Settings")
@@ -150,7 +150,7 @@ if uploaded_file:
                 # 1. Insert Logo (Top Centerish)
                 excel_logo_path = 'PFRLogo.png'
                 if os.path.exists(excel_logo_path):
-                    title_page.insert_image('A1', excel_logo_path, {'x_scale': 0.35, 'y_scale': 0.35, 'x_offset': 40})
+                    title_page.insert_image('D4', excel_logo_path, {'x_scale': 0.35, 'y_scale': 0.35, 'x_offset': 40})
 
                 # 2. Project Title & Metadata
                 clean_name = uploaded_file.name.split('.')[0].replace('_', ' ').title()
