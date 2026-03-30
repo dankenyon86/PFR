@@ -181,23 +181,80 @@ if resp_file and screen_file:
         with st.spinner("Processing Full Audit..."):
             df[['Status', 'Reason', 'Carrier', 'Risk %']] = df.apply(audit_row, axis=1)
 
-        # --- RESULTS VIEW ---
-        st.header("📊 Results")
-        m1, m2, m3 = st.columns(3)
-        m1.metric("Qualified", (df['Status'] == "Qualified").sum())
-        m2.metric("Rejected", (df['Status'] == "Rejected").sum())
-        m3.metric("Avg Risk", f"{round(df['Risk %'].mean(), 1)}%")
-
-        view_choice = st.radio("View:", ["All", "Qualified Only", "Rejected Only"], horizontal=True)
-        search = st.text_input("Search ID/Name:")
+       # --- RESULTS VIEW ---
+        st.header("📊 Results & Quality Control")
         
-        display_df = df.copy()
-        if view_choice == "Qualified Only": display_df = display_df[display_df['Status'] == "Qualified"]
-        if view_choice == "Rejected Only": display_df = display_df[display_df['Status'] == "Rejected"]
-        if search: display_df = display_df[display_df.astype(str).apply(lambda x: x.str.contains(search, case=False)).any(axis=1)]
+        # Dashboard Metrics
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("✅ Qualified", (df['Status'] == "Qualified").sum())
+        m2.metric("❌ Rejected", (df['Status'] == "Rejected").sum())
+        m3.metric("🚩 Clustered Bots", df['ClusterFlag'].sum())
+        m4.metric("🛡️ Avg Risk", f"{round(df['Risk %'].mean(), 1)}%")
 
-        audit_cols = ["Status", "Risk %", "Reason", "Carrier"]
-        final_cols = audit_cols + [c for c in headers if c not in audit_cols]
-        st.dataframe(display_df[final_cols])
-        
-        st.download_button("📥 Export CSV", df.to_csv(index=False).encode('utf-8-sig'), "pfr_audit.csv")
+        # Create Tabs for different workflows
+        t_list, t_review, t_export = st.tabs(["📋 Full List", "🚩 Manual Review", "📥 Export"])
+
+        with t_list:
+            st.subheader("Candidate Audit Trail")
+            view_choice = st.radio("Filter By:", ["All", "Qualified Only", "Rejected Only"], horizontal=True, key="view_filter")
+            
+            search = st.text_input("🔍 Search by ID, Name, or Email:", key="main_search")
+            
+            display_df = df.copy()
+            if view_choice == "Qualified Only": display_df = display_df[display_df['Status'] == "Qualified"]
+            if view_choice == "Rejected Only": display_df = display_df[display_df['Status'] == "Rejected"]
+            
+            if search:
+                mask = display_df.astype(str).apply(lambda x: x.str.contains(search, case=False)).any(axis=1)
+                display_df = display_df[mask]
+
+            # Re-order columns so audit data is first
+            audit_cols = ["Status", "Risk %", "Reason", "Carrier"]
+            final_cols = audit_cols + [c for c in headers if c not in audit_cols]
+            st.dataframe(display_df[final_cols], use_container_width=True)
+
+        with t_review:
+            st.subheader("Flagged Candidates for Review")
+            # Only show those who didn't pass "Qualified"
+            flagged_df = df[df['Status'] != "Qualified"].sort_values(by="Risk %", ascending=False)
+            
+            if flagged_df.empty:
+                st.success("🎉 No flagged candidates found!")
+            else:
+                st.info(f"Showing {len(flagged_df)} candidates that require manual oversight.")
+                
+                for idx, row in flagged_df.iterrows():
+                    # Create a clean "Review Card" for each person
+                    with st.container(border=True):
+                        c1, c2, c3 = st.columns([2, 2, 1])
+                        
+                        c1.write(f"**ID:** {row[p_id_col]}")
+                        c1.write(f"**Reason:** {row['Reason']}")
+                        
+                        c2.write(f"**Risk Level:** {row['Risk %']}%")
+                        c2.write(f"**Carrier:** {row['Carrier']}")
+                        
+                        # Manual "Force Check" button to see raw API data
+                        if c3.button("Force API Check", key=f"force_{idx}"):
+                            if phone_col in row:
+                                with st.spinner("Fetching deep-scan data..."):
+                                    raw_data = fetch_ipqs(row[phone_col], ipqs_key, iso, dial)
+                                    if raw_data:
+                                        st.json(raw_data)
+                                    else:
+                                        st.error("Could not fetch raw data.")
+
+                        # Show their pattern in a small code block for quick comparison
+                        st.caption(f"**Response Pattern:** {row['Pattern']}")
+
+        with t_export:
+            st.subheader("Prepare Deliverables")
+            st.write("Download the final audit file. This includes all Status, Risk, and Carrier columns.")
+            
+            csv = df.to_csv(index=False).encode('utf-8-sig')
+            st.download_button(
+                label="📥 Download Final PFR Audit (CSV)",
+                data=csv,
+                file_name="pfr_audit_report.csv",
+                mime="text/csv",
+            )
