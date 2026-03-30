@@ -19,6 +19,8 @@ if 'audit_results' not in st.session_state:
     st.session_state.audit_results = None
 if 'consistency_pairs' not in st.session_state:
     st.session_state.consistency_pairs = 1
+if 'groups' not in st.session_state:
+    st.session_state.groups = []
 
 # --- 3. SIDEBAR SETTINGS ---
 st.sidebar.header("⚙️ Risk & Logic Settings")
@@ -33,6 +35,11 @@ weight_mismatch = st.sidebar.slider("Mismatch Penalty (Step 2)", 0, 50, 30)
 weight_pattern = st.sidebar.slider("Identical Pattern Penalty", 0, 50, 40)
 cluster_threshold = st.sidebar.slider("Bot Cluster Sensitivity", 0.7, 0.99, 0.9)
 reject_voip = st.sidebar.checkbox("Auto-Reject VOIP", value=True)
+
+if st.sidebar.button("♻️ Reset App"):
+    st.session_state.audit_results = None
+    st.session_state.consistency_pairs = 1
+    st.rerun()
 
 # --- 4. HELPER FUNCTIONS ---
 def normalize(x):
@@ -104,13 +111,18 @@ if resp_file and screen_file:
         st.session_state.consistency_pairs += 1
         st.rerun()
 
-    # --- STEP 3: AUDIT ENGINE ---
+    # --- STEP 3: AUDIT ENGINE (WITH PROGRESS BAR) ---
     if st.button("🚀 Run Full Audit"):
         df = df_raw.copy()
         res_cols = ['Status', 'Reason', 'Carrier', 'Risk %', 'Pattern', 'ClusterFlag', 'RejectSource']
         df = df.drop(columns=[c for c in res_cols if c in df.columns])
         
+        # --- PROGRESS UI ---
+        status_text = st.empty()
+        prog_bar = st.progress(0)
+
         # 1. Pattern Clustering
+        status_text.text("🔍 Step 1/3: Analyzing Answer Patterns...")
         df['Pattern'] = df[list(set(mapping.values()))].astype(str).agg('-'.join, axis=1)
         vectorizer = TfidfVectorizer()
         X = vectorizer.fit_transform(df['Pattern'].tolist())
@@ -123,18 +135,23 @@ if resp_file and screen_file:
                 if sim_matrix[i, j] > cluster_threshold: group.append(j); visited.add(j)
             if len(group) > 1: groups.append(group)
         df['ClusterFlag'] = df.index.isin([idx for g in groups for idx in g])
+        prog_bar.progress(33)
 
         # 2. Parallel API
+        status_text.text("📡 Step 2/3: Checking Phone Numbers (API)...")
         api_results = {}
         if phone_col:
             unique_phones = df[phone_col].dropna().unique()
+            total_phones = len(unique_phones)
             with ThreadPoolExecutor(max_workers=10) as executor:
                 futures = {executor.submit(fetch_ipqs, p, ipqs_key, iso, dial): p for p in unique_phones}
-                for f in as_completed(futures):
+                for i, f in enumerate(as_completed(futures)):
                     r = f.result()
                     if r: api_results[r["phone"]] = r
+                    prog_bar.progress(33 + int((i/total_phones)*33))
 
-        # 3. Logic
+        # 3. Final Scoring Logic
+        status_text.text("⚖️ Step 3/3: Finalizing Status & Terminology...")
         def audit_row(row):
             behav_score = weight_pattern if row['ClusterFlag'] else 0
             for ca, cb in consistency_rules:
@@ -151,11 +168,15 @@ if resp_file and screen_file:
             return pd.Series(["Approved", "Pass", carrier, 0, "N/A"])
 
         df[['Status', 'Reason', 'Carrier', 'Risk %', 'RejectSource']] = df.apply(audit_row, axis=1)
+        prog_bar.progress(100)
+        status_text.success("✅ Audit Complete!")
+        
+        # Save to Session State
         st.session_state.audit_results = df
         st.session_state.groups = groups
         st.rerun()
 
-    # --- 7. RESULTS DASHBOARD (PERSISTENT) ---
+    # --- 7. RESULTS DASHBOARD ---
     if st.session_state.audit_results is not None:
         df = st.session_state.audit_results
         groups = st.session_state.groups
@@ -181,7 +202,7 @@ if resp_file and screen_file:
             st.dataframe(d_df[audit_cols + [c for c in headers if c not in audit_cols]])
 
         with t_cluster:
-            st.subheader("Answer Pattern Groups")
+            st.subheader("Identical Answer Pattern Groups")
             for i, group in enumerate(groups):
                 c_df = df.iloc[group]
                 with st.expander(f"🚩 Cluster {i+1} ({len(group)} members)"):
