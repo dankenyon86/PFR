@@ -1,5 +1,6 @@
 streamlit
 pandas
+xlsxwriter
 openpyxl
 thefuzz
 python-Levenshtein
