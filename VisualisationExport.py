@@ -18,9 +18,7 @@ def get_clean_value_counts(series):
     def clean_format(val):
         if not val:
             return val
-        # Remove 'other -' (case insensitive) from the start of the string
         val = re.sub(r'(?i)^other\s*-\s*', '', val).strip()
-        # Capitalize only the first letter, preserving the rest of the casing (e.g. acronyms)
         if len(val) > 0:
             val = val[0].upper() + val[1:]
         return val
@@ -43,7 +41,6 @@ def create_pdf_report(df, report_cols, project_name, mode):
         }
         for bad, good in replacements.items():
             text = text.replace(bad, good)
-        # Ensure we don't crash on unhandled characters
         return text.encode('latin-1', 'ignore').decode('latin-1')
 
     pdf = FPDF()
@@ -112,8 +109,12 @@ def create_pdf_report(df, report_cols, project_name, mode):
             plt.savefig(img_buf, format='png', dpi=150)
             img_buf.seek(0)
 
+            # --- FIX: BYTESIO HANDLING ---
+            # We add a .name attribute to the BytesIO object so FPDF recognizes it as a file-like stream
+            img_name = f"graph_{col}.png"
+            
             pdf.ln(5)
-            # FIX: Explicitly name the format as 'PNG' to avoid the .rfind() error
+            # We pass the buffer directly but specify the 'name' and 'type'
             pdf.image(img_buf, x=15, w=180, type='PNG')
             plt.close(fig)
 
@@ -139,19 +140,17 @@ uploaded_file = st.file_uploader("Upload Audited CSV/Excel", type=["csv", "xlsx"
 
 if uploaded_file:
 
-    # --- LOAD DATA ---
     if uploaded_file.name.endswith('.csv'):
         df = pd.read_csv(uploaded_file, encoding='utf-8-sig')
     else:
         df = pd.read_excel(uploaded_file)
 
-    # --- STATUS MAP ---
     status_map = {
-        14: '14 - Not Suitable', '14': 'Not Suitable',
-        19: '19 - Applied', '19': 'Applied',
-        23: '23 - Invited', '23': 'Invited',
-        30: '30 - Completed Task', '30': 'Completed Task',
-        33: '33 - Suitable', '33': 'Suitable'
+        14: '14 - Not Suitable', '14': '14 - Not Suitable',
+        19: '19 - Applied', '19': '19 - Applied',
+        23: '23 - Invited', '23': '23 - Invited',
+        30: '30 - Completed Task', '30': '30 - Completed Task',
+        33: '33 - Suitable', '33': '33 - Suitable'
     }
     if 'Status' in df.columns:
         df['Status'] = df['Status'].replace(status_map)
@@ -161,12 +160,10 @@ if uploaded_file:
     if os.path.exists("PFRLogo.png"):
         st.sidebar.image("PFRLogo.png", width=250)
 
-    # --- PII SETTINGS ---
     st.sidebar.header("🛡️ Privacy Settings")
     default_pii = [c for c in headers if any(k in c.lower() for k in ['phone','tel','email','name','mobile','address','postcode','ip'])]
     pii_to_strip = st.sidebar.multiselect("Columns to Strip:", headers, default=default_pii)
 
-    # ID COLUMN
     default_id_index = 0
     for i, col in enumerate(headers):
         if col.strip().lower() == 'participant id':
@@ -174,12 +171,10 @@ if uploaded_file:
             break
     id_col = st.sidebar.selectbox("Anchor ID Column (Keep):", headers, index=default_id_index)
 
-    # --- PDF OPTIONS ---
     st.sidebar.divider()
     st.sidebar.header("📄 PDF Options")
     pdf_mode = st.sidebar.radio("PDF Content:", ["Tables Only", "Graphs Only", "Tables & Graphs"], index=2)
 
-    # --- REPORT SETTINGS ---
     st.sidebar.divider()
     st.sidebar.header("📊 Report Settings")
 
@@ -192,19 +187,15 @@ if uploaded_file:
         default=valid_graph_cols
     )
 
-    # --- PREVIEW ---
     st.header("🔍 Report Preview")
     tab1, tab2 = st.tabs(["📈 Data Distributions", "📋 Anonymized Preview"])
 
     with tab1:
         col_left, col_right = st.columns(2)
-
         if valid_graph_cols:
             selected_vis = col_left.selectbox("Select Research Metric:", valid_graph_cols)
-
             chart_data = get_clean_value_counts(df[selected_vis]).reset_index()
             chart_data.columns = ['Metric', 'Count']
-
             with col_left.expander(f"📊 {selected_vis}", expanded=True):
                 st.bar_chart(chart_data.set_index('Metric'), color="#EF8354")
 
@@ -219,7 +210,6 @@ if uploaded_file:
         st.dataframe(display_df.head(50))
         st.caption(f"Showing first 50 rows. Total rows: {len(df)}")
 
-    # --- EXPORTS ---
     st.divider()
     st.subheader("📦 Generate Downloads")
 
@@ -234,10 +224,8 @@ if uploaded_file:
                 with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
                     workbook = writer.book
 
-                    # PROJECT OVERVIEW
                     title_page = workbook.add_worksheet('Project Overview')
                     title_page.hide_gridlines(2)
-
                     main_title_fmt = workbook.add_format({'bold': True,'font_size': 26,'font_color': '#2D3142','align': 'center','valign': 'vcenter'})
                     meta_fmt = workbook.add_format({'font_size': 12,'font_color': '#4F5D75','align': 'center'})
                     accent_line_fmt = workbook.add_format({'bg_color': '#EF8354'})
@@ -251,7 +239,6 @@ if uploaded_file:
                     title_page.merge_range('A16:I16', f"Total Sample Size: {len(df)} Respondents", meta_fmt)
                     title_page.merge_range('C19:G19', '', accent_line_fmt)
 
-                    # SUMMARY
                     summary_sheet = workbook.add_worksheet('Summary')
                     summary_sheet.hide_gridlines(2)
 
@@ -261,10 +248,7 @@ if uploaded_file:
                         if stats_series.empty:
                             continue
 
-                        stats_df = pd.DataFrame({
-                            'Count': stats_series,
-                            'Percentage': stats_series / stats_series.sum()
-                        })
+                        stats_df = pd.DataFrame({'Count': stats_series, 'Percentage': stats_series / stats_series.sum()})
 
                         summary_sheet.write(current_row - 1, 0, col_name, workbook.add_format({'bold': True}))
                         for idx, (label, row_data) in enumerate(stats_df.iterrows()):
@@ -279,18 +263,11 @@ if uploaded_file:
                             'values': ['Summary', current_row, 1, current_row + len(stats_df)-1, 1],
                         })
                         summary_sheet.insert_chart(current_row, 4, chart)
-
                         current_row += len(stats_df) + 15
 
-                    # DATA SHEET
                     display_df.to_excel(writer, sheet_name='Anonymized Data', index=False)
 
-                st.download_button(
-                    "📥 Download Excel",
-                    data=output.getvalue(),
-                    file_name=f"PFR_Report_{clean_project_name}.xlsx"
-                )
-
+                st.download_button("📥 Download Excel", data=output.getvalue(), file_name=f"PFR_Report_{clean_project_name}.xlsx")
             except Exception as e:
                 st.error(f"Excel Error: {e}")
 
@@ -298,15 +275,11 @@ if uploaded_file:
     with col_dl2:
         if st.button("Generate PDF Summary"):
             try:
+                # We use a separate BytesIO for the image rendering to avoid stream issues
                 with st.spinner("Generating PDF..."):
                     pdf_bytes = create_pdf_report(df, report_graph_cols, clean_project_name, pdf_mode)
 
-                st.download_button(
-                    "📄 Download PDF",
-                    data=pdf_bytes,
-                    file_name=f"PFR_Summary_{clean_project_name}.pdf"
-                )
-
+                st.download_button("📄 Download PDF", data=pdf_bytes, file_name=f"PFR_Summary_{clean_project_name}.pdf")
             except Exception as e:
                 st.error(f"PDF Error: {e}")
 
