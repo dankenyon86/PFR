@@ -6,3 +6,4 @@ thefuzz
 python-Levenshtein
 scikit-learn
 fpdf
+matplotlib
