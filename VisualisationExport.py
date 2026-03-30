@@ -150,7 +150,7 @@ if uploaded_file:
                 # 1. Insert Logo (Top Centerish)
                 excel_logo_path = 'PFRLogo.png'
                 if os.path.exists(excel_logo_path):
-                    title_page.insert_image('D4', excel_logo_path, {'x_scale': 0.35, 'y_scale': 0.35, 'x_offset': 40})
+                    title_page.insert_image('B4', excel_logo_path, {'x_scale': 1, 'y_scale': 1, 'x_offset': 40})
 
                 # 2. Project Title & Metadata
                 clean_name = uploaded_file.name.split('.')[0].replace('_', ' ').title()
