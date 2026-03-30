@@ -54,8 +54,8 @@ if uploaded_file:
 
     headers = df.columns.tolist()
     
-    if os.path.exists("PFRLogo.gif"):
-        st.sidebar.image("PFRLogo.gif", width=250)
+    if os.path.exists("pfr_logo.png"):
+        st.sidebar.image("pfr_logo.png", width=250)
         
     # --- 3. PII STRIPPING SETTINGS ---
     st.sidebar.header("🛡️ Privacy Settings")
@@ -128,52 +128,61 @@ if uploaded_file:
 
     # --- 5. EXCEL REPORT GENERATION ---
     st.divider()
-    if st.button("📦 Generate & Download Client Excel Report"):
+    if st.button("📦 Generate & Download Professional Client Report"):
         try:
+            import datetime
             output = io.BytesIO()
             # Use XlsxWriter as the engine for advanced formatting
             with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                
-                # A. Raw Anonymized Data Sheet
-                display_df.to_excel(writer, sheet_name='Anonymized Data', index=False)
-                
-                # B. Summary / Charts Sheet
                 workbook = writer.book
-                summary_sheet = workbook.add_worksheet('Summary')
                 
-                # --- FORMATTING: TURN OFF GRIDLINES ---
+                # --- 🟢 SHEET 1: TITLE PAGE (First) ---
+                title_page = workbook.add_worksheet('Project Overview')
+                title_page.hide_gridlines(2)
+                
+                # Styles for Title Page
+                main_title_fmt = workbook.add_format({
+                    'bold': True, 'font_size': 26, 'font_color': '#2D3142', 'align': 'center', 'valign': 'vcenter'
+                })
+                meta_fmt = workbook.add_format({'font_size': 12, 'font_color': '#4F5D75', 'align': 'center'})
+                accent_line_fmt = workbook.add_format({'bg_color': '#EF8354'}) 
+
+                # 1. Insert Logo (Top Centerish)
+                excel_logo_path = 'pfr_logo.png'
+                if os.path.exists(excel_logo_path):
+                    title_page.insert_image('D4', excel_logo_path, {'x_scale': 0.35, 'y_scale': 0.35, 'x_offset': 40})
+
+                # 2. Project Title & Metadata
+                clean_name = uploaded_file.name.split('.')[0].replace('_', ' ').title()
+                title_page.merge_range('A12:I13', clean_name, main_title_fmt)
+                
+                today = datetime.date.today().strftime("%d %B %Y")
+                title_page.merge_range('A15:I15', f"Date: {today}", meta_fmt)
+                title_page.merge_range('A16:I16', f"Total Sample Size: {len(df)} Respondents", meta_fmt)
+                
+                # 3. Aesthetic Divider
+                title_page.set_row(18, 2) 
+                title_page.merge_range('C19:G19', '', accent_line_fmt)
+
+                # --- 🔵 SHEET 2: EXECUTIVE SUMMARY (Middle) ---
+                summary_sheet = workbook.add_worksheet('Summary')
                 summary_sheet.hide_gridlines(2)
                 
-                # Header Styles
-                title_fmt = workbook.add_format({
-                    'bold': True, 
-                    'font_size': 16, 
-                    'font_color': '#FFFFFF', 
-                    'bg_color': '#2D3142', 
-                    'align': 'center',
-                    'valign': 'vcenter'
+                summary_header_fmt = workbook.add_format({
+                    'bold': True, 'font_size': 16, 'font_color': '#FFFFFF', 'bg_color': '#2D3142', 'align': 'center', 'valign': 'vcenter'
                 })
                 stat_header_fmt = workbook.add_format({
-                    'bold': True, 
-                    'border': 1, 
-                    'font_size': 12, 
-                    'text_wrap': True, 
-                    'valign': 'top',
-                    'bg_color': '#4F5D75',
-                    'font_color': '#FFFFFF'
+                    'bold': True, 'border': 1, 'font_size': 12, 'text_wrap': True, 'valign': 'top',
+                    'bg_color': '#4F5D75', 'font_color': '#FFFFFF'
                 })
-                italic_fmt = workbook.add_format({'italic': True})
-
+                
                 # Write Main Title
-                file_title = uploaded_file.name.split('.')[0].upper()
-                summary_sheet.merge_range('A1:H2', file_title, title_fmt)
+                summary_sheet.merge_range('A1:H2', f"{clean_name.upper()} - METRICS", summary_header_fmt)
                 
                 # Check for logo insertion
-                if os.path.exists("pfr_logo.png"):
-                    summary_sheet.insert_image('K1', 'pfr_logo.png', {'x_scale': 0.18, 'y_scale': 0.18, 'x_offset': 10, 'y_offset': 4})
+                if os.path.exists(excel_logo_path):
+                    summary_sheet.insert_image('K1', excel_logo_path, {'x_scale': 0.18, 'y_scale': 0.18, 'x_offset': 10, 'y_offset': 4})
                     
-                summary_sheet.write('A4', f'Total Respondents: {len(df)}', italic_fmt)
-
                 pct_format_col = workbook.add_format({'num_format': '0.0%'})
                 summary_sheet.set_column('A:A', 40)
                 summary_sheet.set_column('B:B', 12)
@@ -182,7 +191,7 @@ if uploaded_file:
                 # Use user-selected columns for summary charts
                 demo_cols = report_graph_cols
                 
-                current_row = 6
+                current_row = 4
                 for col_name in demo_cols:
                     # 1. Write Data Table for the Charts
                     summary_sheet.write(current_row, 0, f"{col_name}", stat_header_fmt)
@@ -215,6 +224,7 @@ if uploaded_file:
                     dynamic_width = max(550, len(stats_df) * 50)
                     
                     # --- CHART 1 (COUNT) ---
+                    # Switching to 'bar' (horizontal) which handles verbose survey text perfectly
                     chart1 = workbook.add_chart({'type': 'bar'})
                     chart1.set_size({'width': dynamic_width, 'height': dynamic_height})
                     
@@ -301,22 +311,23 @@ if uploaded_file:
                     # Increment row for next section, accounting for dynamic graph height
                     current_row += max(len(stats_df) + 4, int(dynamic_height / 20) + 2)
 
-                # Format the Data Sheet (Auto-filter and freeze panes)
+                # --- ⚪ SHEET 3: ANONYMIZED DATA (Last) ---
+                display_df.to_excel(writer, sheet_name='Anonymized Data', index=False)
+
                 data_sheet = writer.sheets['Anonymized Data']
                 data_sheet.autofilter(0, 0, 0, len(display_df.columns) - 1)
                 data_sheet.freeze_panes(1, 0)
-                # Optional: Set column widths for data sheet
-                data_sheet.set_column(0, len(display_df.columns) - 1, 15)
+                data_sheet.set_column(0, len(display_df.columns) - 1, 18)
 
             # Final Download Trigger
             processed_data = output.getvalue()
             st.download_button(
-                label="📥 Click to Download .xlsx Report",
+                label="📥 Download Professional .xlsx",
                 data=processed_data,
                 file_name=f"PFR_Client_Report_{uploaded_file.name.split('.')[0]}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
-            st.success("✅ Summary Report Ready!")
+            st.success("✅ Multi-sheet report generated with Raw Data as the final tab!")
             
         except Exception as e:
             st.error(f"Error generating report: {e}")
