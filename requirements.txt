@@ -5,3 +5,4 @@ openpyxl
 thefuzz
 python-Levenshtein
 scikit-learn
+fpdf
