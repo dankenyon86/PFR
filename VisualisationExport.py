@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 
 # --- HELPER FUNCTIONS ---
 def get_clean_value_counts(series):
+    """Splits delimited strings (like ;) and returns cleaned value counts."""
     s = series.dropna().astype(str)
     if s.str.contains(';').any():
         s = s.str.split(';').explode()
@@ -17,7 +18,9 @@ def get_clean_value_counts(series):
     def clean_format(val):
         if not val:
             return val
+        # Remove 'other -' (case insensitive) from the start of the string
         val = re.sub(r'(?i)^other\s*-\s*', '', val).strip()
+        # Capitalize only the first letter, preserving the rest of the casing (e.g. acronyms)
         if len(val) > 0:
             val = val[0].upper() + val[1:]
         return val
@@ -26,8 +29,9 @@ def get_clean_value_counts(series):
     s = s[s != '']
     return s.value_counts()
 
-# --- PDF GENERATOR (MERGED) ---
+# --- PDF GENERATOR ---
 def create_pdf_report(df, report_cols, project_name, mode):
+    """Generates a PDF summary with optional Tables and/or Matplotlib Graphs."""
     def clean_unicode(text):
         if not isinstance(text, str):
             return str(text)
@@ -39,6 +43,7 @@ def create_pdf_report(df, report_cols, project_name, mode):
         }
         for bad, good in replacements.items():
             text = text.replace(bad, good)
+        # Ensure we don't crash on unhandled characters
         return text.encode('latin-1', 'ignore').decode('latin-1')
 
     pdf = FPDF()
@@ -108,7 +113,8 @@ def create_pdf_report(df, report_cols, project_name, mode):
             img_buf.seek(0)
 
             pdf.ln(5)
-            pdf.image(img_buf, x=15, w=180)
+            # FIX: Explicitly name the format as 'PNG' to avoid the .rfind() error
+            pdf.image(img_buf, x=15, w=180, type='PNG')
             plt.close(fig)
 
     return pdf.output(dest='S').encode('latin-1')
@@ -139,13 +145,13 @@ if uploaded_file:
     else:
         df = pd.read_excel(uploaded_file)
 
-    # --- STATUS MAP (MERGED BEST VERSION) ---
+    # --- STATUS MAP ---
     status_map = {
-        14: '14 - Not Suitable', '14': '14 - Not Suitable',
-        19: '19 - Applied', '19': '19 - Applied',
-        23: '23 - Invited', '23': '23 - Invited',
-        30: '30 - Completed Task', '30': '30 - Completed Task',
-        33: '33 - Suitable', '33': '33 - Suitable'
+        14: '14 - Not Suitable', '14': 'Not Suitable',
+        19: '19 - Applied', '19': 'Applied',
+        23: '23 - Invited', '23': 'Invited',
+        30: '30 - Completed Task', '30': 'Completed Task',
+        33: '33 - Suitable', '33': 'Suitable'
     }
     if 'Status' in df.columns:
         df['Status'] = df['Status'].replace(status_map)
@@ -168,7 +174,7 @@ if uploaded_file:
             break
     id_col = st.sidebar.selectbox("Anchor ID Column (Keep):", headers, index=default_id_index)
 
-    # --- PDF OPTIONS (NEW) ---
+    # --- PDF OPTIONS ---
     st.sidebar.divider()
     st.sidebar.header("📄 PDF Options")
     pdf_mode = st.sidebar.radio("PDF Content:", ["Tables Only", "Graphs Only", "Tables & Graphs"], index=2)
@@ -220,7 +226,7 @@ if uploaded_file:
     col_dl1, col_dl2 = st.columns(2)
     clean_project_name = uploaded_file.name.split('.')[0].replace('_', ' ').title()
 
-    # --- EXCEL (UNCHANGED FULL VERSION) ---
+    # --- EXCEL ---
     with col_dl1:
         if st.button("Generate Excel Report"):
             try:
@@ -260,11 +266,12 @@ if uploaded_file:
                             'Percentage': stats_series / stats_series.sum()
                         })
 
+                        summary_sheet.write(current_row - 1, 0, col_name, workbook.add_format({'bold': True}))
                         for idx, (label, row_data) in enumerate(stats_df.iterrows()):
                             r = current_row + idx
                             summary_sheet.write(r, 0, label)
                             summary_sheet.write(r, 1, row_data['Count'])
-                            summary_sheet.write(r, 2, row_data['Percentage'])
+                            summary_sheet.write(r, 2, row_data['Percentage'], workbook.add_format({'num_format': '0.0%'}))
 
                         chart = workbook.add_chart({'type': 'bar'})
                         chart.add_series({
@@ -273,9 +280,9 @@ if uploaded_file:
                         })
                         summary_sheet.insert_chart(current_row, 4, chart)
 
-                        current_row += len(stats_df) + 5
+                        current_row += len(stats_df) + 15
 
-                    # DATA
+                    # DATA SHEET
                     display_df.to_excel(writer, sheet_name='Anonymized Data', index=False)
 
                 st.download_button(
@@ -287,7 +294,7 @@ if uploaded_file:
             except Exception as e:
                 st.error(f"Excel Error: {e}")
 
-    # --- PDF (UPGRADED) ---
+    # --- PDF ---
     with col_dl2:
         if st.button("Generate PDF Summary"):
             try:
