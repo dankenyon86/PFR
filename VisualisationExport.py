@@ -91,7 +91,7 @@ if uploaded_file:
     st.sidebar.info("Select columns to visualise in the Summary sheet.")
     
     # Only allow graphing for columns that start with 'Q'
-    q_columns = [c for c in headers if c.strip().upper().startswith('Q')]
+    q_columns = [c for c in headers if c.strip().upper().startswith('Q') or c.strip().upper() == 'STATUS']
     valid_graph_cols = [c for c in q_columns if c not in pii_to_strip]
     
     report_graph_cols = st.sidebar.multiselect(
@@ -139,7 +139,7 @@ if uploaded_file:
 
     # --- 5. EXCEL REPORT GENERATION ---
     st.divider()
-    if st.button("📦 Generate & Download Professional Client Report"):
+    if st.button("📦 Generate & Download The Client Report"):
         try:
             import datetime
             output = io.BytesIO()
