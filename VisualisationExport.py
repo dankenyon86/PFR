@@ -4,6 +4,7 @@ import io
 import re
 import os
 import datetime
+import tempfile  # New import for the fix
 from fpdf import FPDF
 import matplotlib.pyplot as plt
 
@@ -95,28 +96,27 @@ def create_pdf_report(df, report_cols, project_name, mode):
                 pdf.cell(35, 7, f" {count}", border=1)
                 pdf.cell(35, 7, f" {(count/total_n)*100:.1f}%", border=1, ln=True)
 
-        # --- GRAPHS ---
+        # --- GRAPHS (FIXED FOR STARTSSWITH ERROR) ---
         if "Graphs" in mode:
             fig, ax = plt.subplots(figsize=(8, 4))
             labels = [clean_unicode(str(l))[:30] for l in stats.index]
-
             ax.barh(labels, stats.values, color='#EF8354')
             ax.invert_yaxis()
             ax.set_title(f"Distribution: {col}", fontsize=10)
-
             plt.tight_layout()
-            img_buf = io.BytesIO()
-            plt.savefig(img_buf, format='png', dpi=150)
-            img_buf.seek(0)
 
-            # --- FIX: BYTESIO HANDLING ---
-            # We add a .name attribute to the BytesIO object so FPDF recognizes it as a file-like stream
-            img_name = f"graph_{col}.png"
+            # Fix: Save to a real temporary file so FPDF can process the path string
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
+                plt.savefig(tmp.name, format='png', dpi=150)
+                tmp_path = tmp.name
             
             pdf.ln(5)
-            # We pass the buffer directly but specify the 'name' and 'type'
-            pdf.image(img_buf, x=15, w=180, type='PNG')
+            pdf.image(tmp_path, x=15, w=180)
             plt.close(fig)
+            
+            # Clean up the temporary file immediately
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
 
     return pdf.output(dest='S').encode('latin-1')
 
@@ -275,7 +275,6 @@ if uploaded_file:
     with col_dl2:
         if st.button("Generate PDF Summary"):
             try:
-                # We use a separate BytesIO for the image rendering to avoid stream issues
                 with st.spinner("Generating PDF..."):
                     pdf_bytes = create_pdf_report(df, report_graph_cols, clean_project_name, pdf_mode)
 
