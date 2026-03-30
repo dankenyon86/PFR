@@ -164,7 +164,7 @@ if uploaded_file:
                 title_page.set_row(18, 2) 
                 title_page.merge_range('C19:G19', '', accent_line_fmt)
 
-                # --- 🔵 SHEET 2: EXECUTIVE SUMMARY (Middle) ---
+                # --- 🔵 SHEET 2: SUMMARY (Middle) ---
                 summary_sheet = workbook.add_worksheet('Summary')
                 summary_sheet.hide_gridlines(2)
                 
@@ -181,7 +181,7 @@ if uploaded_file:
                 
                 # Check for logo insertion
                 if os.path.exists(excel_logo_path):
-                    summary_sheet.insert_image('A1', excel_logo_path, {'x_scale': 0.18, 'y_scale': 0.18, 'x_offset': 10, 'y_offset': 4})
+                    summary_sheet.insert_image('A1', excel_logo_path, {'x_scale': 0.50, 'y_scale': 0.50, 'x_offset': 10, 'y_offset': 4})
                     
                 pct_format_col = workbook.add_format({'num_format': '0.0%'})
                 summary_sheet.set_column('B:B', 40)
@@ -321,7 +321,7 @@ if uploaded_file:
             # Final Download Trigger
             processed_data = output.getvalue()
             st.download_button(
-                label="📥 Download Professional .xlsx",
+                label="📥 Download Summary Report .xlsx",
                 data=processed_data,
                 file_name=f"PFR_Client_Report_{uploaded_file.name.split('.')[0]}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -332,4 +332,4 @@ if uploaded_file:
             st.error(f"Error generating report: {e}")
 
 else:
-    st.info("👋 Welcome! Please upload an audited CSV or Excel file to generate the client report.")
+    st.info("👋 Welcome! Please upload a CSV or Excel file to generate the client report.")
