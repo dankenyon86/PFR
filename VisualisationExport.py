@@ -148,7 +148,7 @@ if uploaded_file:
                 accent_line_fmt = workbook.add_format({'bg_color': '#EF8354'}) 
 
                 # 1. Insert Logo (Top Centerish)
-                excel_logo_path = 'pfr_logo.png'
+                excel_logo_path = 'PFRLogo.gif'
                 if os.path.exists(excel_logo_path):
                     title_page.insert_image('D4', excel_logo_path, {'x_scale': 0.35, 'y_scale': 0.35, 'x_offset': 40})
 
