@@ -29,7 +29,24 @@ def get_clean_value_counts(series):
     return s.value_counts()
 
 def create_pdf_report(df, report_cols, project_name):
-    """Generates a branded PDF summary of the key metrics."""
+    """Generates a branded PDF summary with Unicode character handling."""
+    
+    def clean_unicode(text):
+        """Replaces common decorative unicode characters with ASCII equivalents."""
+        if not isinstance(text, str):
+            return str(text)
+        replacements = {
+            '\u2018': "'", '\u2019': "'",  # Smart quotes (left/right)
+            '\u201c': '"', '\u201d': '"',  # Smart double quotes
+            '\u2013': '-', '\u2014': '-',  # En/Em dashes
+            '\u2026': '...',               # Ellipsis
+            '\xa0': ' '                     # Non-breaking space
+        }
+        for bad, good in replacements.items():
+            text = text.replace(bad, good)
+        # Encode to latin-1 and ignore anything else we missed to prevent crashes
+        return text.encode('latin-1', 'ignore').decode('latin-1')
+
     pdf = FPDF()
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
@@ -41,29 +58,27 @@ def create_pdf_report(df, report_cols, project_name):
     
     # 2. Title Section
     pdf.set_font("Arial", 'B', 22)
-    pdf.set_text_color(45, 49, 66) # #2D3142
-    pdf.cell(0, 15, "Project Summary Report", ln=True, align='L')
+    pdf.set_text_color(45, 49, 66)
+    pdf.cell(0, 15, clean_unicode("Project Summary Report"), ln=True, align='L')
     
     pdf.set_font("Arial", '', 12)
-    pdf.set_text_color(79, 93, 117) # #4F5D75
-    pdf.cell(0, 8, f"Project: {project_name}", ln=True)
+    pdf.set_text_color(79, 93, 117)
+    pdf.cell(0, 8, clean_unicode(f"Project: {project_name}"), ln=True)
     pdf.cell(0, 8, f"Date: {datetime.date.today().strftime('%d %B %Y')}", ln=True)
     pdf.cell(0, 8, f"Total Sample: {len(df)} Respondents", ln=True)
     pdf.ln(10)
     
-    # 3. Data Tables for each selected column
+    # 3. Data Tables
     for col in report_cols:
-        # Check for page overflow
         if pdf.get_y() > 230:
             pdf.add_page()
 
-        # Section Header
         pdf.set_font("Arial", 'B', 12)
-        pdf.set_fill_color(79, 93, 117) # Corporate Blue
+        pdf.set_fill_color(79, 93, 117)
         pdf.set_text_color(255, 255, 255)
-        pdf.cell(0, 10, f"  Metric: {col}", ln=True, fill=True)
+        # Clean the column header
+        pdf.cell(0, 10, clean_unicode(f"  Metric: {col}"), ln=True, fill=True)
         
-        # Table Header
         pdf.set_text_color(0, 0, 0)
         pdf.set_font("Arial", 'B', 10)
         pdf.set_fill_color(240, 240, 240)
@@ -71,21 +86,23 @@ def create_pdf_report(df, report_cols, project_name):
         pdf.cell(35, 8, " Count", border=1, fill=True)
         pdf.cell(35, 8, " Percentage", border=1, fill=True, ln=True)
         
-        # Table Data
         pdf.set_font("Arial", '', 10)
         stats = get_clean_value_counts(df[col])
         total_n = stats.sum()
         
         for label, count in stats.items():
-            # Truncate labels for PDF fit
-            clean_label = str(label)[:55] + ('...' if len(str(label)) > 55 else '')
+            # Clean the data labels
+            display_label = clean_unicode(str(label))
+            clean_label = display_label[:55] + ('...' if len(display_label) > 55 else '')
+            
             pdf.cell(110, 7, f" {clean_label}", border=1)
             pdf.cell(35, 7, f" {count}", border=1)
             pdf.cell(35, 7, f" {(count/total_n)*100:.1f}%", border=1, ln=True)
         
         pdf.ln(8)
         
-    return pdf.output(dest='S').encode('latin-1', 'replace')
+    # Return as bytes
+    return pdf.output(dest='S').encode('latin-1')
 
 # --- 1. CONFIG & SETTINGS ---
 st.set_page_config(page_title="PFR Client Reporting Tool", layout="wide")
@@ -113,11 +130,11 @@ if uploaded_file:
         df = pd.read_excel(uploaded_file)
 
     status_map = {
-        14: '14 - Not Suitable', '14': '14 - Not Suitable',
-        19: '19 - Applied', '19': '19 - Applied',
-        23: '23 - Invited', '23': '23 - Invited',
-        30: '30 - Completed Task', '30': '30 - Completed Task',
-        33: '33 - Suitable', '33': '33 - Suitable'
+        14: 'Not Suitable', '14': 'Not Suitable',
+        19: 'Applied', '19': 'Applied',
+        23: 'Invited', '23': 'Invited',
+        30: 'Completed Task', '30': 'Completed Task',
+        33: 'Suitable', '33': 'Suitable'
     }
     if 'Status' in df.columns:
         df['Status'] = df['Status'].replace(status_map)
