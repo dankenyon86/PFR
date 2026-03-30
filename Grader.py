@@ -117,8 +117,9 @@ if resp_file and screen_file:
             st.rerun()
 
         if st.button("🚀 Run Full Audit"):
-            result_cols = ['Status', 'Reason', 'Carrier', 'Risk %', 'Pattern']
-            df_resp = df_resp.drop(columns=[c for c in result_cols if c in df_resp.columns])
+            generated_cols = ['Status', 'Reason', 'Carrier', 'Risk %', 'Pattern']
+            df_resp = df_resp.loc[:, ~df_resp.columns.duplicated()].copy()
+            df_resp = df_resp.drop(columns=[c for c in generated_cols if c in df_resp.columns])
             q_map_cols = list(set(mapping.values()))
             df_resp['Pattern'] = df_resp[q_map_cols].astype(str).agg('-'.join, axis=1)
             pattern_counts = df_resp['Pattern'].value_counts()
