@@ -3,6 +3,7 @@ import pandas as pd
 import requests
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from thefuzz import fuzz
 
 # --- DEPENDENCY CHECK ---
 try:
@@ -13,7 +14,7 @@ except ImportError:
     st.stop()
 
 # --- 1. CONFIG ---
-st.set_page_config(page_title="PFR Checker PRO", layout="wide")
+st.set_page_config(page_title="PFR Candidate Checker", layout="wide")
 
 # --- 2. SIDEBAR LOGO & SETTINGS ---
 try:
@@ -28,47 +29,32 @@ country_map = {"UK": ("GB", "44"), "US": ("US", "1"), "AU": ("AU", "61")}
 c_label = st.sidebar.selectbox("Default Country", list(country_map.keys()))
 iso, dial = country_map[c_label]
 
-cluster_threshold = st.sidebar.slider("Cluster Sensitivity (Bot Detection)", 0.7, 0.99, 0.9)
+st.sidebar.subheader("Fraud Weighting")
+weight_mismatch = st.sidebar.slider("Mismatch Penalty (Step 2)", 0, 50, 30)
+weight_pattern = st.sidebar.slider("Identical Pattern Penalty", 0, 50, 40)
+cluster_threshold = st.sidebar.slider("Bot Cluster Sensitivity", 0.7, 0.99, 0.9)
+reject_voip = st.sidebar.checkbox("Auto-Reject VOIP", value=True)
 
-# --- 3. CONSTANTS ---
-STATUS_REJECTED = "Rejected"
-STATUS_REVIEW = "Review"
-STATUS_QUALIFIED = "Qualified"
-
-# --- 4. HELPER FUNCTIONS ---
+# --- 3. HELPER FUNCTIONS ---
 def normalize(x):
     return re.sub(r'[^a-z0-9]', '', str(x).lower()).strip()
 
-def compute_status(score):
-    if score > 70: return STATUS_REJECTED
-    elif score > 40: return STATUS_REVIEW
-    return STATUS_QUALIFIED
-
-# --- 5. PARALLEL API ENGINE ---
 def fetch_ipqs(phone, api_key, iso_code, dial_code):
     try:
         clean = re.sub(r'[^0-9+]', '', str(phone))
         if not clean.startswith('+'):
             if clean.startswith('0'): clean = clean[1:]
             clean = dial_code + clean
-        else:
-            clean = clean.replace('+', '')
-
+        else: clean = clean.replace('+', '')
         url = f"https://www.ipqualityscore.com/api/json/phone/{api_key}/{clean}"
         res = requests.get(url, params={'country': iso_code, 'strictness': 1}, timeout=5)
         data = res.json()
         if data.get("success"):
-            return {
-                "phone": phone,
-                "fraud_score": data.get("fraud_score", 0),
-                "carrier": data.get("carrier", "Unknown"),
-                "voip": data.get("voip", False)
-            }
-    except:
-        return {"phone": phone, "fraud_score": 0, "carrier": "Error", "voip": False}
+            return {"phone": phone, "fraud_score": data.get("fraud_score", 0), 
+                    "carrier": data.get("carrier", "Unknown"), "voip": data.get("voip", False)}
+    except: return None
 
-def parallel_ipqs(df, phone_col, api_key, iso_code, dial_code):
-    phones = df[phone_col].dropna().unique()
+def parallel_ipqs(phones, api_key, iso_code, dial_code):
     results = {}
     with ThreadPoolExecutor(max_workers=10) as executor:
         futures = {executor.submit(fetch_ipqs, p, api_key, iso_code, dial_code): p for p in phones}
@@ -77,9 +63,7 @@ def parallel_ipqs(df, phone_col, api_key, iso_code, dial_code):
             if r: results[r["phone"]] = r
     return results
 
-# --- 6. CLUSTERING (BOT DETECTION) ---
 def detect_clusters(patterns, threshold=0.9):
-    if not patterns: return []
     vectorizer = TfidfVectorizer()
     X = vectorizer.fit_transform(patterns)
     sim_matrix = cosine_similarity(X)
@@ -90,107 +74,130 @@ def detect_clusters(patterns, threshold=0.9):
         group = [i]
         for j in range(i + 1, len(patterns)):
             if sim_matrix[i, j] > threshold:
-                group.append(j)
-                visited.add(j)
+                group.append(j); visited.add(j)
         if len(group) > 1: groups.append(group)
     return groups
 
-# --- 7. UI LOADERS ---
-st.title("🕵️ PFR Candidate Checker PRO")
+# --- 4. LOADERS ---
+st.title("🕵️ PFR Candidate Checker")
 col1, col2 = st.columns(2)
 resp_file = col1.file_uploader("1. Upload Call List (Data)", type=["csv", "xlsx"])
-screen_file = col2.file_uploader("2. Upload Screener (Logic)", type=["xlsx"])
+screen_file = col2.file_uploader("2. Upload PFR Screener (Logic)", type=["xlsx"])
 
-# --- 8. MAIN AUDIT LOGIC ---
+# --- 5. MAIN LOGIC ---
 if resp_file and screen_file:
-    # Load Data + BOM Fix
     if resp_file.name.endswith('.csv'):
         df = pd.read_csv(resp_file, encoding='utf-8-sig')
     else:
         df = pd.read_excel(resp_file)
     
-    # CRITICAL: Strip hidden characters and drop duplicate columns from the raw file immediately
     df.columns = [str(c).replace('\ufeff', '').replace('ï»¿', '').strip() for c in df.columns]
     df = df.loc[:, ~df.columns.duplicated()].copy()
-    
     headers = df.columns.tolist()
+    norm_headers = [normalize(h) for h in headers]
+    
     p_id_col = next((c for c in ['Participant ID', 'ID', 'Ref'] if c in headers), headers[0])
-    phone_col = next((c for c in headers if any(p in c.lower() for p in ["phone", "mobile", "tel"])), None)
+    phone_col = next((headers[i] for i, nh in enumerate(norm_headers) if any(p in nh for p in ['mob', 'tel', 'phone'])), None)
 
-    # Simple Pattern Build for Clustering
-    df["Pattern"] = df.astype(str).agg("-".join, axis=1)
+    # --- RESTORED STEP 1: SCREENER MAPPING ---
+    raw_screen = pd.read_excel(screen_file, header=None)
+    h_idx = next(i for i, row in raw_screen.iterrows() if str(row[0]).strip().lower() in ["question", "questions"])
+    df_screen = pd.read_excel(screen_file, header=h_idx)
+    df_screen.iloc[:, 0] = df_screen.iloc[:, 0].ffill()
+    q_col, a_col = df_screen.columns[0], df_screen.columns[1]
+    so_col = next((c for c in df_screen.columns if any(k in str(c).lower() for k in ["screen-out", "disqualify"])), None)
+    logic_df = df_screen.dropna(subset=[a_col])
 
-    # --- EXECUTION ---
-    with st.spinner("🔍 Detecting Behavioural Clusters..."):
-        clusters = detect_clusters(df["Pattern"].tolist(), cluster_threshold)
+    st.header("⚙️ Step 1: Mapping")
+    final_rules, mapping = {}, {}
+    for q_text in logic_df[q_col].unique():
+        q_rows = logic_df[logic_df[q_col] == q_text]
+        options = [str(o).strip() for o in q_rows[a_col].unique().tolist() if pd.notna(o)]
+        q_id = re.search(r'q\d+', str(q_text).lower()).group(0) if re.search(r'q\d+', str(q_text).lower()) else normalize(q_text)[:15]
+        def_idx = next((i for i, nh in enumerate(norm_headers) if q_id in nh), 0)
+        
+        with st.expander(f"❓ {str(q_text).strip()[:100]}", expanded=False):
+            c1, c2 = st.columns([1, 2])
+            mapping[q_text] = c1.selectbox(f"CSV Col:", headers, index=def_idx, key=f"m_{hash(q_text)}")
+            auto_rej = [str(r).strip() for r in q_rows[q_rows[so_col].astype(str).str.contains("Disqualify", case=False, na=False)][a_col].tolist()] if so_col else []
+            final_rules[q_text] = c2.multiselect("Reject if:", options, default=[r for r in auto_rej if r in options], key=f"r_{hash(q_text)}")
+
+    # --- RESTORED STEP 2: COMPARISON ---
+    st.header("⚖️ Step 2: Comparison")
+    if 'consistency_pairs' not in st.session_state: st.session_state.consistency_pairs = 1
+    consistency_rules = []
+    for i in range(st.session_state.consistency_pairs):
+        c1, c2 = st.columns(2)
+        ca = c1.selectbox(f"Profile Col {i+1}", ["None"] + headers, key=f"pa_{i}")
+        cb = c2.selectbox(f"Screener Col {i+1}", ["None"] + headers, key=f"pb_{i}")
+        if ca != "None" and cb != "None": consistency_rules.append((ca, cb))
+    if st.button("➕ Add Pair"):
+        st.session_state.consistency_pairs += 1
+        st.rerun()
+
+    # --- STEP 3: UNIFIED AUDIT ---
+    if st.button("🚀 Run Full Audit"):
+        # Pre-clean generated cols to avoid duplicate error
+        df = df.drop(columns=[c for c in ['Status', 'Reason', 'Carrier', 'Risk %', 'Pattern', 'ClusterFlag'] if c in df.columns])
+        
+        # 1. Clustering & Patterning
+        df['Pattern'] = df[list(set(mapping.values()))].astype(str).agg('-'.join, axis=1)
+        clusters = detect_clusters(df['Pattern'].tolist(), cluster_threshold)
         cluster_flags = set()
         for g in clusters: cluster_flags.update(g)
-        df["ClusterFlag"] = df.index.isin(cluster_flags)
+        df['ClusterFlag'] = df.index.isin(cluster_flags)
 
-    if phone_col and ipqs_key:
-        with st.spinner("📡 Running Phone Intelligence (Parallel)..."):
-            api_results = parallel_ipqs(df, phone_col, ipqs_key, iso, dial)
-            df["FraudScore"] = df[phone_col].map(lambda x: api_results.get(x, {}).get("fraud_score", 0))
-            df["VOIP"] = df[phone_col].map(lambda x: api_results.get(x, {}).get("voip", False))
-            df["Carrier"] = df[phone_col].map(lambda x: api_results.get(x, {}).get("carrier", "Unknown"))
-    else:
-        df["FraudScore"], df["VOIP"], df["Carrier"] = 0, False, "N/A"
+        # 2. Parallel API
+        api_results = {}
+        if phone_col and ipqs_key:
+            api_results = parallel_ipqs(df[phone_col].dropna().unique(), ipqs_key, iso, dial)
 
-    # --- SCORING ---
-    df["Score"] = df["FraudScore"] + (df["ClusterFlag"].astype(int) * 35)
-    df["Status"] = df["Score"].apply(compute_status)
+        def audit_row(row):
+            behav_score = 0
+            # Cluster/Pattern Penalty
+            if row['ClusterFlag']: behav_score += weight_pattern
+            # Mismatch Penalty
+            for ca, cb in consistency_rules:
+                if normalize(row.get(ca)) != normalize(row.get(cb)): behav_score += weight_mismatch
+            
+            # Screener Logic (Hard Rejects)
+            for q, bads in final_rules.items():
+                if str(row.get(mapping[q])).strip() in bads:
+                    return pd.Series(["Rejected", f"Screener: {q[:20]}", "N/A", behav_score])
 
-    def explain(row):
-        reasons = []
-        if row["ClusterFlag"]: reasons.append("Identical Answer Pattern")
-        if row["FraudScore"] > 50: reasons.append("High API Fraud Score")
-        if row["VOIP"]: reasons.append("VOIP Number Detected")
-        return " | ".join(reasons) or "Clear"
-    df["Reason"] = df.apply(explain, axis=1)
+            # API Data
+            api_fraud, carrier = 0, "N/A"
+            if phone_col in row and row[phone_col] in api_results:
+                res = api_results[row[phone_col]]
+                api_fraud = res['fraud_score']
+                carrier = res['carrier']
+                if reject_voip and res['voip']: return pd.Series(["Rejected", "VOIP Detected", carrier, 100])
 
-    # --- RESULTS DASHBOARD ---
-    st.divider()
-    st.subheader("📊 Summary Statistics")
-    m1, m2, m3 = st.columns(3)
-    m1.metric("Rejected", (df["Status"] == STATUS_REJECTED).sum())
-    m2.metric("Review", (df["Status"] == STATUS_REVIEW).sum())
-    m3.metric("Qualified", (df["Status"] == STATUS_QUALIFIED).sum())
+            total_risk = min(100, behav_score + api_fraud)
+            status = "Rejected" if total_risk > 70 else "Qualified"
+            reason = "Pass" if status == "Qualified" else "High Risk Score"
+            return pd.Series([status, reason, carrier, total_risk])
 
-    # --- VIEW CONTROLS ---
-    st.subheader("🔍 Detailed Audit View")
-    c1, c2 = st.columns([1, 2])
-    view_choice = c1.radio("Filter List:", ["All", "Qualified Only", "Rejected Only"], horizontal=True)
-    search_term = c2.text_input("Search by ID or Name:")
+        with st.spinner("Processing Full Audit..."):
+            df[['Status', 'Reason', 'Carrier', 'Risk %']] = df.apply(audit_row, axis=1)
 
-    # Filter Logic
-    display_df = df.copy()
-    if view_choice == "Qualified Only":
-        display_df = display_df[display_df['Status'] == STATUS_QUALIFIED]
-    elif view_choice == "Rejected Only":
-        display_df = display_df[display_df['Status'] == STATUS_REJECTED]
-    
-    if search_term:
-        mask = display_df.astype(str).apply(lambda x: x.str.contains(search_term, case=False)).any(axis=1)
-        display_df = display_df[mask]
+        # --- RESULTS VIEW ---
+        st.header("📊 Results")
+        m1, m2, m3 = st.columns(3)
+        m1.metric("Qualified", (df['Status'] == "Qualified").sum())
+        m2.metric("Rejected", (df['Status'] == "Rejected").sum())
+        m3.metric("Avg Risk", f"{round(df['Risk %'].mean(), 1)}%")
 
-    # --- PREVENT DUPLICATE COLUMNS IN DISPLAY ---
-    # We define our Audit result columns
-    audit_cols = ["Status", "Score", "Reason", "Carrier"]
-    if phone_col:
-        audit_cols = [phone_col] + audit_cols
-    
-    # We build a final list that ensures the audit columns are first and original headers are second, without repeats
-    final_display_cols = audit_cols + [c for c in headers if c not in audit_cols]
-    
-    st.dataframe(display_df[final_display_cols])
+        view_choice = st.radio("View:", ["All", "Qualified Only", "Rejected Only"], horizontal=True)
+        search = st.text_input("Search ID/Name:")
+        
+        display_df = df.copy()
+        if view_choice == "Qualified Only": display_df = display_df[display_df['Status'] == "Qualified"]
+        if view_choice == "Rejected Only": display_df = display_df[display_df['Status'] == "Rejected"]
+        if search: display_df = display_df[display_df.astype(str).apply(lambda x: x.str.contains(search, case=False)).any(axis=1)]
 
-    # --- EXPORT ---
-    @st.cache_data
-    def to_excel(data):
-        from io import BytesIO
-        output = BytesIO()
-        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-            data.to_excel(writer, index=False)
-        return output.getvalue()
-
-    st.download_button("📥 Download Full Excel Report", to_excel(df), "pfr_pro_audit_report.xlsx")
+        audit_cols = ["Status", "Risk %", "Reason", "Carrier"]
+        final_cols = audit_cols + [c for c in headers if c not in audit_cols]
+        st.dataframe(display_df[final_cols])
+        
+        st.download_button("📥 Export CSV", df.to_csv(index=False).encode('utf-8-sig'), "pfr_audit.csv")
