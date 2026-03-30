@@ -153,14 +153,7 @@ if uploaded_file:
     headers = df.columns.tolist()
 
     if os.path.exists("PFRLogo.png"):
-        st.sidebar.image("PFRLogo.png", width=250)
-
-if os.path.exists("PFRLogo.png"):
-    title_page.insert_image('B4', 'PFRLogo.png', {
-        'x_scale': 1, 
-        'y_scale': 1, 
-        'x_offset': 40
-    })
+        st.sidebar.image("PFRLogo.png", width=300, height=300)
     
     st.sidebar.header("🛡️ Privacy Settings")
     default_pii = [c for c in headers if any(k in c.lower() for k in ['phone','tel','email','name','mobile','address','postcode','ip'])]
