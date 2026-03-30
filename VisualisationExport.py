@@ -153,14 +153,15 @@ if uploaded_file:
     headers = df.columns.tolist()
 
     if os.path.exists("PFRLogo.png"):
-        st.sidebar.markdown(
-        f"""
-        <div style="margin-left: 40px;">
-            <img src="data:image/png;base64,{base64.b64encode(open("PFRLogo.png", "rb").read()).decode()}" width="250">
-        </div>
-        """, 
-        unsafe_allow_html=True
-    )
+        st.sidebar.image("PFRLogo.png", width=250)
+
+if os.path.exists("PFRLogo.png"):
+    title_page.insert_image('B4', 'PFRLogo.png', {
+        'x_scale': 1, 
+        'y_scale': 1, 
+        'x_offset': 40
+    })
+     
 Option 2: The Logic Integration
 
     st.sidebar.header("🛡️ Privacy Settings")
