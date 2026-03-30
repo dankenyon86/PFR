@@ -161,9 +161,7 @@ if os.path.exists("PFRLogo.png"):
         'y_scale': 1, 
         'x_offset': 40
     })
-     
-Option 2: The Logic Integration
-
+    
     st.sidebar.header("🛡️ Privacy Settings")
     default_pii = [c for c in headers if any(k in c.lower() for k in ['phone','tel','email','name','mobile','address','postcode','ip'])]
     pii_to_strip = st.sidebar.multiselect("Columns to Strip:", headers, default=default_pii)
