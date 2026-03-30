@@ -33,7 +33,7 @@ with col2:
     screen_file = st.file_uploader("2. Upload PFR Screener (Logic)", type=["xlsx"])
 
 st.sidebar.header("⚙️ Risk & Logic Settings")
-ipqs_key = "H67E8mmH292LeSaTgbrufW5qzj68VEnG" 
+ipqs_key = "H67E8mmH292LeSaTgbrufW5qzj68VEnG1" 
 
 country_map = {
     "United Kingdom (44)": ("GB", "44"), 
@@ -117,6 +117,8 @@ if resp_file and screen_file:
             st.rerun()
 
         if st.button("🚀 Run Full Audit"):
+            result_cols = ['Status', 'Reason', 'Carrier', 'Risk %', 'Pattern']
+            df_resp = df_resp.drop(columns=[c for c in result_cols if c in df_resp.columns])
             q_map_cols = list(set(mapping.values()))
             df_resp['Pattern'] = df_resp[q_map_cols].astype(str).agg('-'.join, axis=1)
             pattern_counts = df_resp['Pattern'].value_counts()
@@ -147,7 +149,7 @@ if resp_file and screen_file:
 
                 total = min(100, behav_score + api_score)
                 status = "Rejected" if total > 70 else "Qualified"
-                reason = "Pass" if status == "Qualified" else "High Risk Behavior/Fraud Score"
+                reason = "Pass" if status == "Qualified" else "High Risk Pattern"
                 return pd.Series([status, reason, carrier, total])
 
             with st.spinner("Analyzing data integrity..."):
