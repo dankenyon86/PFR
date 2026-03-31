@@ -76,10 +76,12 @@ def create_pdf_report(df, report_cols, project_name, mode):
     # --- TITLE PAGE ---
     pdf.add_page()
     if os.path.exists("PFRLogo.png"):
-        pdf.image("PFRLogo.png", x=10, y=8, w=75)
+        pdf.image("PFRLogo.png", x=10, y=10, w=75) 
+        pdf.ln(50) 
+    else:
         pdf.ln(20)
 
-    pdf.set_font("Arial", 'B', 20)
+    pdf.set_font("Arial", 'B', 22)
     pdf.set_text_color(45, 49, 66)
     pdf.cell(0, 15, clean_unicode("Project Summary Report"), ln=True)
 
