@@ -26,7 +26,7 @@ def get_clean_value_counts(series, sort_numerically=False):
     s = s[s != ''] 
     counts = s.value_counts()
 
-if sort_numerically:
+    if sort_numerically:
         try:
             def extract_num(text):
                 match = re.search(r'(\d+)', str(text))
@@ -36,7 +36,7 @@ if sort_numerically:
             counts = counts.reindex(sorted_index)
         except Exception:
             pass 
-                return counts
+        return counts
 
 def is_continuous_data(series, col_name):
     """Detects if a column should be treated as continuous (Histogram)."""
