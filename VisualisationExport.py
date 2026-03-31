@@ -275,41 +275,50 @@ with col_dl1:
                 # --- SHEET 1: PROJECT OVERVIEW ---
                 title_page = workbook.add_worksheet('Project Overview')
                 title_page.hide_gridlines(2)
+                
+                # Formats for a professional look
                 main_title_fmt = workbook.add_format({'bold': True, 'font_size': 26, 'font_color': '#2D3142', 'align': 'center', 'valign': 'vcenter'})
                 meta_fmt = workbook.add_format({'font_size': 12, 'font_color': '#4F5D75', 'align': 'center'})
                 accent_line_fmt = workbook.add_format({'bg_color': '#EF8354'}) 
 
+                # 1. Place Logo at the very top of the first page
                 if os.path.exists('PFRLogo.png'):
-                    title_page.insert_image('A1', 'PFRLogo.png', {'x_scale': 1, 'y_scale': 1, 'x_offset': 20, 'y_offset':10})
+                    # Adjust x_scale/y_scale to 1.0 if your logo is small, or 0.5 if it's very high res
+                    title_page.insert_image('A1', 'PFRLogo.png', {'x_scale': 0.5, 'y_scale': 0.5, 'x_offset': 20, 'y_offset': 10})
 
+                # 2. Project Info - Start at row 14 to leave clear space for the logo
                 title_page.merge_range('A14:I15', clean_project_name, main_title_fmt)
                 today_str = datetime.date.today().strftime("%d %B %Y")
                 title_page.merge_range('A17:I17', f"Created Date: {today_str}", meta_fmt)
                 title_page.merge_range('A18:I18', f"Total Sample Size: {len(df)} Respondents", meta_fmt)
+                
+                # Visual accent line
                 title_page.set_row(19, 3) 
                 title_page.merge_range('C20:G20', '', accent_line_fmt)
 
                 # --- SHEET 2: SUMMARY & CHARTS ---
-               summary_sheet = workbook.add_worksheet('Summary')
+                summary_sheet = workbook.add_worksheet('Summary')
                 summary_sheet.hide_gridlines(2)
                 summary_header_fmt = workbook.add_format({'bold': True, 'font_size': 16, 'font_color': '#FFFFFF', 'bg_color': '#2D3142', 'align': 'center', 'valign': 'vcenter'})
                 stat_header_fmt = workbook.add_format({'bold': True, 'border': 1, 'font_size': 11, 'bg_color': '#4F5D75', 'font_color': '#FFFFFF', 'align': 'center'})
-            
+                
+                # Header Bar
                 summary_sheet.merge_range('A1:L3', f"{clean_project_name.upper()} - INSIGHTS", summary_header_fmt)
-
+                
+                # Column widths for readability
                 summary_sheet.set_column('A:A', 45)
                 summary_sheet.set_column('B:C', 15)
 
                 current_row = 5
                 CHART_WIDTH = 550
                 CHART_HEIGHT = 380
-                
+
                 for col_name in report_graph_cols:
                     is_cont = is_continuous_data(df[col_name], col_name)
                     stats_series = get_clean_value_counts(df[col_name], sort_numerically=is_cont)
                     if stats_series.empty: continue
                     
-                    # Header Table
+                    # Write Table Data
                     summary_sheet.write(current_row, 0, col_name, stat_header_fmt)
                     summary_sheet.write(current_row, 1, "Count", stat_header_fmt)
                     summary_sheet.write(current_row, 2, "Percent", stat_header_fmt)
@@ -324,50 +333,41 @@ with col_dl1:
                         summary_sheet.write(r, 1, row_data['Count'], border_fmt)
                         summary_sheet.write(r, 2, row_data['Percentage'], border_pct_fmt)
                     
-                    # Calculate Dynamic Sizing
-                    dynamic_height = max(50, len(stats_df) * 45)
-                    dynamic_width = max(250, len(stats_df) * 50)
-                    
-                    # --- CHART 1: COUNTS (ORANGE) ---
+                    # --- CHART 1: COUNTS ---
                     chart1 = workbook.add_chart({'type': 'column' if is_cont else 'bar'})
-                    chart1.set_size({'width': dynamic_width, 'height': dynamic_height})
+                    chart1.set_size({'width': CHART_WIDTH, 'height': CHART_HEIGHT})
                     chart1.add_series({
                         'categories': ['Summary', current_row + 1, 0, current_row + len(stats_df), 0],
                         'values':     ['Summary', current_row + 1, 1, current_row + len(stats_df), 1],
                         'fill': {'color': '#EF8354'}, 
-                        'gap': 0 if is_cont else 80,
-                        'name': 'Response Count',
-                        'data_labels': {'value': True, 'font': {'size': 10}}
+                        'gap': 20 if is_cont else 60,
                     })
-                    chart1.set_title({'name': f'Count: {col_name}'})
+                    chart1.set_title({'name': f'Volume: {col_name}', 'name_font': {'size': 12}})
+                    chart1.set_legend({'none': True})
                     if not is_cont: chart1.set_y_axis({'reverse': True})
+                    
                     summary_sheet.insert_chart(current_row, 4, chart1)
 
-                    # --- CHART 2: PERCENTAGE (BLUE) ---
                     chart2 = workbook.add_chart({'type': 'column' if is_cont else 'bar'})
-                    chart2.set_size({'width': dynamic_width, 'height': dynamic_height})
+                    chart2.set_size({'width': CHART_WIDTH, 'height': CHART_HEIGHT})
                     chart2.add_series({
                         'categories': ['Summary', current_row + 1, 0, current_row + len(stats_df), 0],
                         'values':     ['Summary', current_row + 1, 2, current_row + len(stats_df), 2],
                         'fill': {'color': '#4F5D75'}, 
-                        'gap': 0 if is_cont else 80,
-                        'name': 'Percentage %',
-                        'data_labels': {'value': True, 'num_format': '0%', 'font': {'size': 10}}
+                        'gap': 20 if is_cont else 60,
                     })
-                    chart2.set_title({'name': f'% of Total: {col_name}'})
+                    chart2.set_title({'name': f'Percentage: {col_name}', 'name_font': {'size': 12}})
+                    chart2.set_legend({'none': True})
                     if not is_cont: chart2.set_y_axis({'reverse': True})
+      
+                    summary_sheet.insert_chart(current_row, 10, chart2)
                     
-                    col_offset = 4 + int(dynamic_width / 64) + 1
-                    summary_sheet.insert_chart(current_row, col_offset, chart2)
-                    
-                    # Increment row for next block
-                    current_row += max(len(stats_df) + 4, int(dynamic_height / 20) + 2)
+                    current_row += 22 
 
-                # --- SHEET 3: ANONYMIZED DATA ---
                 display_df.to_excel(writer, sheet_name='Anonymized Data', index=False)
                 data_sheet = writer.sheets['Anonymized Data']
                 data_sheet.freeze_panes(1, 0)
-                data_sheet.set_column(0, len(display_df.columns) - 1, 18)
+                data_sheet.set_column(0, len(display_df.columns) - 1, 20)
 
             st.download_button("📥 Download Excel Report", output.getvalue(), f"PFR_Report_{clean_project_name}.xlsx")
         except Exception as e:
