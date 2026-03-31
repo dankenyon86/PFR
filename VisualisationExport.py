@@ -36,7 +36,7 @@ if sort_numerically:
             counts = counts.reindex(sorted_index)
         except Exception:
             pass 
-    return counts
+return counts
 
 def is_continuous_data(series, col_name):
     """Detects if a column should be treated as continuous (Histogram)."""
