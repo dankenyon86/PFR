@@ -280,29 +280,30 @@ with col_dl1:
                 accent_line_fmt = workbook.add_format({'bg_color': '#EF8354'}) 
 
                 if os.path.exists('PFRLogo.png'):
-                    title_page.insert_image('A1', 'PFRLogo.png', {'x_scale': 1, 'y_scale': 1, 'x_offset': 40})
+                    title_page.insert_image('A1', 'PFRLogo.png', {'x_scale': 1, 'y_scale': 1, 'x_offset': 20, 'y_offset':10})
 
-                title_page.merge_range('A12:I13', clean_project_name, main_title_fmt)
+                title_page.merge_range('A14:I15', clean_project_name, main_title_fmt)
                 today_str = datetime.date.today().strftime("%d %B %Y")
-                title_page.merge_range('A15:I15', f"Created Date: {today_str}", meta_fmt)
-                title_page.merge_range('A16:I16', f"Total Sample Size: {len(df)} Respondents", meta_fmt)
-                title_page.set_row(18, 2) 
-                title_page.merge_range('C19:G19', '', accent_line_fmt)
+                title_page.merge_range('A17:I17', f"Created Date: {today_str}", meta_fmt)
+                title_page.merge_range('A18:I18', f"Total Sample Size: {len(df)} Respondents", meta_fmt)
+                title_page.set_row(19, 3) 
+                title_page.merge_range('C20:G20', '', accent_line_fmt)
 
                 # --- SHEET 2: SUMMARY & CHARTS ---
-                summary_sheet = workbook.add_worksheet('Summary')
+               summary_sheet = workbook.add_worksheet('Summary')
                 summary_sheet.hide_gridlines(2)
                 summary_header_fmt = workbook.add_format({'bold': True, 'font_size': 16, 'font_color': '#FFFFFF', 'bg_color': '#2D3142', 'align': 'center', 'valign': 'vcenter'})
-                stat_header_fmt = workbook.add_format({'bold': True, 'border': 1, 'font_size': 12, 'bg_color': '#4F5D75', 'font_color': '#FFFFFF', 'align': 'center'})
+                stat_header_fmt = workbook.add_format({'bold': True, 'border': 1, 'font_size': 11, 'bg_color': '#4F5D75', 'font_color': '#FFFFFF', 'align': 'center'})
+            
+                summary_sheet.merge_range('A1:L3', f"{clean_project_name.upper()} - INSIGHTS", summary_header_fmt)
+
+                summary_sheet.set_column('A:A', 45)
+                summary_sheet.set_column('B:C', 15)
+
+                current_row = 5
+                CHART_WIDTH = 550
+                CHART_HEIGHT = 380
                 
-                summary_sheet.merge_range('A1:H3', f"{clean_project_name.upper()} - METRICS", summary_header_fmt)
-                if os.path.exists('PFRLogo.png'):
-                    summary_sheet.insert_image('A1', 'PFRLogo.png', {'x_scale': 1, 'y_scale': 1})
-
-                summary_sheet.set_column('A:A', 40)
-                summary_sheet.set_column('B:C', 12)
-
-                current_row = 4
                 for col_name in report_graph_cols:
                     is_cont = is_continuous_data(df[col_name], col_name)
                     stats_series = get_clean_value_counts(df[col_name], sort_numerically=is_cont)
