@@ -280,7 +280,7 @@ with col_dl1:
                 accent_line_fmt = workbook.add_format({'bg_color': '#EF8354'}) 
 
                 if os.path.exists('PFRLogo.png'):
-                    title_page.insert_image('A2', 'PFRLogo.png', {'x_scale': 1, 'y_scale': 1, 'x_offset': 40})
+                    title_page.insert_image('A1', 'PFRLogo.png', {'x_scale': 1, 'y_scale': 1, 'x_offset': 40})
 
                 title_page.merge_range('A12:I13', clean_project_name, main_title_fmt)
                 today_str = datetime.date.today().strftime("%d %B %Y")
@@ -324,8 +324,8 @@ with col_dl1:
                         summary_sheet.write(r, 2, row_data['Percentage'], border_pct_fmt)
                     
                     # Calculate Dynamic Sizing
-                    dynamic_height = max(350, len(stats_df) * 45)
-                    dynamic_width = max(550, len(stats_df) * 50)
+                    dynamic_height = max(200, len(stats_df) * 45)
+                    dynamic_width = max(200, len(stats_df) * 50)
                     
                     # --- CHART 1: COUNTS (ORANGE) ---
                     chart1 = workbook.add_chart({'type': 'column' if is_cont else 'bar'})
