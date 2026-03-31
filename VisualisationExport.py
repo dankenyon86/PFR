@@ -76,7 +76,7 @@ def create_pdf_report(df, report_cols, project_name, mode):
     # --- TITLE PAGE ---
     pdf.add_page()
     if os.path.exists("PFRLogo.png"):
-        pdf.image("PFRLogo.png", x=10, y=8, w=100)
+        pdf.image("PFRLogo.png", x=10, y=8, w=50)
         pdf.ln(20)
 
     pdf.set_font("Arial", 'B', 22)
@@ -283,7 +283,7 @@ with col_dl1:
 
                 # 1. Place Logo at the very top of the first page
                 if os.path.exists('PFRLogo.png'):
-                    title_page.insert_image('A1', 'PFRLogo.png', {'x_scale': 0.25, 'y_scale': 0.25})
+                    title_page.insert_image('A1', 'PFRLogo.png', {'x_scale': 0.05, 'y_scale': 0.05})
 
                 # 2. Project Info - Start at row 14 to leave clear space for the logo
                 title_page.merge_range('A14:I15', clean_project_name, main_title_fmt)
