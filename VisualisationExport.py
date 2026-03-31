@@ -178,7 +178,7 @@ span[data-baseweb="tag"] { background-color: #4F5D75 !important; }
 st.markdown("""<style>@import url('https://fonts.googleapis.com/css2?family=Lexend:wght@300;400;700&display=swap'); html, body, [class*="css"]  {font-family: 'Lexend', sans-serif;}</style>""", unsafe_allow_html=True)
 
 if os.path.exists("PFRLogo.png"):
-    st.sidebar.image("PFRLogo.png", width=350)
+    st.sidebar.image("PFRLogo.png", width=400)
 
 st.title("PFR Client Report Generator")
 st.markdown("Convert call lists into anonymised, client-ready Excel & PDF reports.")
