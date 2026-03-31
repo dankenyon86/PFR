@@ -283,8 +283,7 @@ with col_dl1:
 
                 # 1. Place Logo at the very top of the first page
                 if os.path.exists('PFRLogo.png'):
-                    # Adjust x_scale/y_scale to 1.0 if your logo is small, or 0.5 if it's very high res
-                    title_page.insert_image('A1', 'PFRLogo.png', {'x_scale': 0.5, 'y_scale': 0.5, 'x_offset': 20, 'y_offset': 10})
+                    title_page.insert_image('A1', 'PFRLogo.png', {'x_scale': 0.5, 'y_scale': 0.5})
 
                 # 2. Project Info - Start at row 14 to leave clear space for the logo
                 title_page.merge_range('A14:I15', clean_project_name, main_title_fmt)
@@ -333,36 +332,16 @@ with col_dl1:
                         summary_sheet.write(r, 1, row_data['Count'], border_fmt)
                         summary_sheet.write(r, 2, row_data['Percentage'], border_pct_fmt)
                     
-                    # --- CHART 1: COUNTS ---
+                    # --- CHART 1: COUNTS (ORANGE) ---
                     chart1 = workbook.add_chart({'type': 'column' if is_cont else 'bar'})
                     chart1.set_size({'width': CHART_WIDTH, 'height': CHART_HEIGHT})
-                    chart1.add_series({
-                        'categories': ['Summary', current_row + 1, 0, current_row + len(stats_df), 0],
-                        'values':     ['Summary', current_row + 1, 1, current_row + len(stats_df), 1],
-                        'fill': {'color': '#EF8354'}, 
-                        'gap': 20 if is_cont else 60,
-                    })
-                    chart1.set_title({'name': f'Volume: {col_name}', 'name_font': {'size': 12}})
-                    chart1.set_legend({'none': True})
-                    if not is_cont: chart1.set_y_axis({'reverse': True})
-                    
                     summary_sheet.insert_chart(current_row, 4, chart1)
 
+                    # --- CHART 2: PERCENTAGE (BLUE) ---
                     chart2 = workbook.add_chart({'type': 'column' if is_cont else 'bar'})
                     chart2.set_size({'width': CHART_WIDTH, 'height': CHART_HEIGHT})
-                    chart2.add_series({
-                        'categories': ['Summary', current_row + 1, 0, current_row + len(stats_df), 0],
-                        'values':     ['Summary', current_row + 1, 2, current_row + len(stats_df), 2],
-                        'fill': {'color': '#4F5D75'}, 
-                        'gap': 20 if is_cont else 60,
-                    })
-                    chart2.set_title({'name': f'Percentage: {col_name}', 'name_font': {'size': 12}})
-                    chart2.set_legend({'none': True})
-                    if not is_cont: chart2.set_y_axis({'reverse': True})
-      
-                    summary_sheet.insert_chart(current_row, 10, chart2)
-                    
-                    current_row += 22 
+                    summary_sheet.insert_chart(current_row, 14, chart2)
+                    current_row += 25 
 
                 display_df.to_excel(writer, sheet_name='Anonymized Data', index=False)
                 data_sheet = writer.sheets['Anonymized Data']
