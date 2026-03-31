@@ -162,8 +162,6 @@ span[data-baseweb="tag"] { background-color: #4F5D75 !important; }
 if os.path.exists("PFRLogo.png"):
     st.sidebar.image("PFRLogo.png", width=350)
 
-if os.path.exists("PFRLogo.png"):
-       st.image("PFRLogo.png", width=350)
 st.title("PFR Client Report Generator")
 st.markdown("Convert call lists into anonymised, client-ready Excel & PDF reports.")
 
