@@ -26,27 +26,23 @@ def get_clean_value_counts(series, sort_numerically=False):
     s = s[s != ''] 
     counts = s.value_counts()
 
-    if sort_numerically:
+if sort_numerically:
         try:
-            # Extract the first numerical sequence found in the label for sorting
             def extract_num(text):
                 match = re.search(r'(\d+)', str(text))
-                return int(match.group(1)) if match else 999999
+                return int(match.group(1)) if match else float('inf')
             
             sorted_index = sorted(counts.index, key=extract_num)
             counts = counts.reindex(sorted_index)
         except Exception:
-            pass # Fallback to default count-based sorting if numeric extract fails
-            
+            pass 
     return counts
 
 def is_continuous_data(series, col_name):
     """Detects if a column should be treated as continuous (Histogram)."""
     name_low = col_name.lower()
-    # Keyword check for common continuous metrics
     if any(k in name_low for k in ["age", "income", "salary", "height", "weight", "years", "spend", "cost"]):
         return True
-    # Statistical check: Is 80% or more of the data numeric?
     try:
         numeric_check = pd.to_numeric(series, errors='coerce')
         if numeric_check.notnull().mean() > 0.8:
@@ -244,7 +240,8 @@ with tab1:
     vis_opts = [c for c in valid_graph_cols if c != id_col]
     if vis_opts:
         selected_vis = col_l.selectbox("Select Research Metric:", vis_opts)
-        chart_data = get_clean_value_counts(df[selected_vis]).reset_index()
+        is_cont = is_continuous_data(df[selected_vis], selected_vis)
+        chart_data = get_clean_value_counts(df[selected_vis], sort_numerically=is_cont).reset_index()
         chart_data.columns = ['Metric', 'Count']
         with col_l.expander(f"📊 {selected_vis} Preview", expanded=True):
             st.bar_chart(chart_data.set_index('Metric'), color="#EF8354")
@@ -307,7 +304,7 @@ with col_dl1:
                 current_row = 4
                 for col_name in report_graph_cols:
                     is_cont = is_continuous_data(df[col_name], col_name)
-                    stats_series = get_clean_value_counts(df[col_name])
+                    stats_series = get_clean_value_counts(df[col_name], sort_numerically=is_cont)
                     if stats_series.empty: continue
                     
                     # Header Table
