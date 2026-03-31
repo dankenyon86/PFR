@@ -57,31 +57,28 @@ def is_continuous_data(series, col_name):
 
 # --- 2. PDF GENERATION ENGINE ---
 def create_pdf_report(df, report_cols, project_name, mode):
-    def clean_unicode(text):
-        if not isinstance(text, str):
-            return str(text)
-        replacements = {
-            '\u2018': "'", '\u2019': "'",
-            '\u201c': '"', '\u201d': '"',
-            '\u2013': '-', '\u2014': '-',
-            '\u2026': '...', '\xa0': ' '
-        }
-        for bad, good in replacements.items():
-            text = text.replace(bad, good)
-        return text.encode('latin-1', 'ignore').decode('latin-1')
-
     pdf = FPDF()
+    try:
+        pdf.add_font('Lexend', '', 'Lexend-Regular.ttf', uni=True)
+        pdf.add_font('Lexend', 'B', 'Lexend-Bold.ttf', uni=True)
+        font_name = "Lexend"
+    except:
+        font_name = "Arial"
+
     pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.add_page()
+    pdf.set_font(font_name, 'B', 22)
+    pdf.cell(0, 15, "Project Summary Report", ln=True)
 
     # --- TITLE PAGE ---
     pdf.add_page()
     if os.path.exists("PFRLogo.png"):
-        pdf.image("PFRLogo.png", x=10, y=10, w=75) 
+        pdf.image("PFRLogo.png", x=10, y=10, w=100) 
         pdf.ln(50) 
     else:
         pdf.ln(20)
 
-    pdf.set_font("Arial", 'B', 22)
+    pdf.set_font("Calibri", 'B', 22)
     pdf.set_text_color(45, 49, 66)
     pdf.cell(0, 15, clean_unicode("Project Summary Report"), ln=True)
 
@@ -160,6 +157,8 @@ st.markdown("""
 span[data-baseweb="tag"] { background-color: #4F5D75 !important; }
 </style>
 """, unsafe_allow_html=True)
+
+st.markdown("""<style>@import url('https://fonts.googleapis.com/css2?family=Lexend:wght@300;400;700&display=swap'); html, body, [class*="css"]  {font-family: 'Lexend', sans-serif;}</style>""", unsafe_allow_html=True)
 
 if os.path.exists("PFRLogo.png"):
     st.sidebar.image("PFRLogo.png", width=350)
@@ -279,8 +278,8 @@ with col_dl1:
                 title_page.hide_gridlines(2)
                 
                 # Formats for a professional look
-                main_title_fmt = workbook.add_format({'bold': True, 'font_size': 26, 'font_color': '#2D3142', 'align': 'center', 'valign': 'vcenter'})
-                meta_fmt = workbook.add_format({'font_size': 12, 'font_color': '#4F5D75', 'align': 'center'})
+                main_title_fmt = workbook.add_format({'font_name': 'Lexend', 'bold': True, 'font_size': 26, 'font_color': '#2D3142', 'align': 'center'})
+                meta_fmt = workbook.add_format({'font_name': 'Lexend', 'font_size': 12, 'font_color': '#4F5D75', 'align': 'center'})
                 accent_line_fmt = workbook.add_format({'bg_color': '#EF8354'}) 
 
                 # 1. Place Logo at the very top of the first page
