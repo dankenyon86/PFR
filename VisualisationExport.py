@@ -9,23 +9,6 @@ from fpdf import FPDF
 import matplotlib.pyplot as plt
 import numpy as np
 
-# --- 0. BRANDING & FONTS ---
-st.markdown("""
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Lexend:wght@300;400;500;600;700&display=swap');
-
-html, body, [class*="css"], .stText, .stMarkdown, p, span, label, h1, h2, h3, h4, h5, h6 {
-    font-family: 'Lexend', sans-serif !important;
-}
-
-/* Customizing the sidebar tags to match your theme */
-span[data-baseweb="tag"] { 
-    background-color: #4F5D75 !important; 
-    font-family: 'Lexend', sans-serif !important;
-}
-</style>
-""", unsafe_allow_html=True)
-
 # --- 1. CORE UTILITIES ---
 def get_clean_value_counts(series, sort_numerically=False):
     """Splits delimited strings and returns cleaned counts, optionally sorted numerically."""
