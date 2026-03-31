@@ -225,6 +225,8 @@ id_col = st.sidebar.selectbox("Anchor ID Column (Keep):", headers, index=default
 
 st.sidebar.divider()
 st.sidebar.header("PDF Export Options")
+q_columns = [c for c in headers]
+valid_graph_cols = [c for c in q_columns if c not in pii_to_strip
 pdf_mode = st.sidebar.radio("PDF Content:", ["Tables Only", "Graphs Only", "Tables & Graphs"], index=2)
 
 st.sidebar.divider()
