@@ -9,12 +9,12 @@ from fpdf import FPDF
 import matplotlib.pyplot as plt
 import numpy as np
 
-# --- 1. CORE UTILITIES & "DATA COOKING" ---
+# --- 1. CORE UTILITIES ---
 def get_clean_value_counts(series, sort_numerically=False):
     """Splits delimited strings and returns cleaned counts, optionally sorted numerically."""
     s = series.dropna().astype(str)
     if s.empty:
-        return pd.Series(dtype=int) # Return empty series instead of None
+        return pd.Series(dtype=int)
         
     if s.str.contains(';').any():
         s = s.str.split(';').explode()
@@ -32,16 +32,12 @@ def get_clean_value_counts(series, sort_numerically=False):
     if sort_numerically and not counts.empty:
         try:
             def extract_num(text):
-                # Search for digits; default to a very high number if none found
                 match = re.search(r'(\d+)', str(text))
                 return int(match.group(1)) if match else 999999
             
-            # Create a sorted list of the unique index labels
             sorted_labels = sorted(counts.index, key=extract_num)
-            # Reindex the counts based on that sorted list
             counts = counts.reindex(sorted_labels)
         except Exception as e:
-            # If sorting fails, just return the original counts to prevent app crash
             pass
             
     return counts
@@ -61,7 +57,6 @@ def is_continuous_data(series, col_name):
 
 # --- 2. PDF GENERATION ENGINE ---
 def create_pdf_report(df, report_cols, project_name, mode):
-    """Generates a PDF summary with optional Tables and/or Matplotlib Graphs."""
     def clean_unicode(text):
         if not isinstance(text, str):
             return str(text)
@@ -165,17 +160,17 @@ span[data-baseweb="tag"] { background-color: #4F5D75 !important; }
 """, unsafe_allow_html=True)
 
 if os.path.exists("PFRLogo.png"):
-    st.sidebar.image("PFRLogo.png", width=250)
+    st.sidebar.image("PFRLogo.png", width=350)
 
-st.title("📊 PFR Client Report Generator")
+if os.path.exists("PFRLogo.png"):
+       st.image("PFRLogo.png", width=350)
+st.title("PFR Client Report Generator")
 st.markdown("Convert call lists into anonymised, client-ready Excel & PDF reports.")
 
-uploaded_file = st.file_uploader("Upload Audited CSV/Excel", type=["csv", "xlsx"])
+uploaded_file = st.file_uploader("Upload Call List", type=["csv", "xlsx"])
 
 if not uploaded_file:
-    if os.path.exists("PFRLogo.png"):
-        st.image("PFRLogo.png", width=350)
-    st.info("👋 Welcome! Please upload an audited CSV or Excel file to generate the client report.")
+    st.info("Welcome! Please upload a call list to generate the client report.")
     st.stop()
 
 # --- 4. DATA PROCESSING ---
@@ -219,7 +214,7 @@ if 'Status' in df.columns:
 headers = df.columns.tolist()
 
 # Sidebar Settings
-st.sidebar.header("🛡️ Privacy Settings")
+st.sidebar.header("Privacy Settings")
 default_pii = [c for c in headers if any(k in c.lower() for k in ['phone', 'tel', 'email', 'name', 'mobile', 'address', 'postcode', 'ip'])]
 pii_to_strip = st.sidebar.multiselect("Columns to Strip (PII):", headers, default=default_pii)
 
@@ -231,17 +226,16 @@ for i, col in enumerate(headers):
 id_col = st.sidebar.selectbox("Anchor ID Column (Keep):", headers, index=default_id_index)
 
 st.sidebar.divider()
-st.sidebar.header("📄 PDF Export Options")
+st.sidebar.header("PDF Export Options")
 pdf_mode = st.sidebar.radio("PDF Content:", ["Tables Only", "Graphs Only", "Tables & Graphs"], index=2)
 
 st.sidebar.divider()
-st.sidebar.header("📊 Excel Report Settings")
-q_columns = [c for c in headers if c.strip().upper().startswith('Q') or c.strip().upper() == 'STATUS']
+st.sidebar.header("Excel Report Settings")
 valid_graph_cols = [c for c in q_columns if c not in pii_to_strip]
 report_graph_cols = st.sidebar.multiselect("Columns for Visualisation:", options=valid_graph_cols, default=valid_graph_cols)
 
 # --- 5. VISUALIZATION PREVIEW (TABBED) ---
-tab1, tab2 = st.tabs(["📈 Live Distributions", "📋 Anonymized Preview"])
+tab1, tab2 = st.tabs(["Live Distributions", "Anonymized Preview"])
 
 with tab1:
     col_l, col_r = st.columns(2)
@@ -267,7 +261,7 @@ with tab2:
 
 # --- 6. EXPORT GENERATION ENGINE ---
 st.divider()
-st.subheader("📦 Generate Downloads")
+st.subheader("Generate Downloads")
 col_dl1, col_dl2 = st.columns(2)
 clean_project_name = uploaded_file.name.split('.')[0].replace('_', ' ').title()
 
@@ -287,11 +281,11 @@ with col_dl1:
                 accent_line_fmt = workbook.add_format({'bg_color': '#EF8354'}) 
 
                 if os.path.exists('PFRLogo.png'):
-                    title_page.insert_image('D4', 'PFRLogo.png', {'x_scale': 1, 'y_scale': 1, 'x_offset': 40})
+                    title_page.insert_image('A2', 'PFRLogo.png', {'x_scale': 1, 'y_scale': 1, 'x_offset': 40})
 
                 title_page.merge_range('A12:I13', clean_project_name, main_title_fmt)
                 today_str = datetime.date.today().strftime("%d %B %Y")
-                title_page.merge_range('A15:I15', f"Date: {today_str}", meta_fmt)
+                title_page.merge_range('A15:I15', f"Created Date: {today_str}", meta_fmt)
                 title_page.merge_range('A16:I16', f"Total Sample Size: {len(df)} Respondents", meta_fmt)
                 title_page.set_row(18, 2) 
                 title_page.merge_range('C19:G19', '', accent_line_fmt)
@@ -302,9 +296,9 @@ with col_dl1:
                 summary_header_fmt = workbook.add_format({'bold': True, 'font_size': 16, 'font_color': '#FFFFFF', 'bg_color': '#2D3142', 'align': 'center', 'valign': 'vcenter'})
                 stat_header_fmt = workbook.add_format({'bold': True, 'border': 1, 'font_size': 12, 'bg_color': '#4F5D75', 'font_color': '#FFFFFF', 'align': 'center'})
                 
-                summary_sheet.merge_range('A1:H2', f"{clean_project_name.upper()} - METRICS", summary_header_fmt)
+                summary_sheet.merge_range('A1:H3', f"{clean_project_name.upper()} - METRICS", summary_header_fmt)
                 if os.path.exists('PFRLogo.png'):
-                    summary_sheet.insert_image('K1', 'PFRLogo.png', {'x_scale': 0.18, 'y_scale': 0.18})
+                    summary_sheet.insert_image('A1', 'PFRLogo.png', {'x_scale': 0.5, 'y_scale': 0.5})
 
                 summary_sheet.set_column('A:A', 40)
                 summary_sheet.set_column('B:C', 12)
