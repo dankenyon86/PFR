@@ -13,12 +13,15 @@ import numpy as np
 def get_clean_value_counts(series, sort_numerically=False):
     """Splits delimited strings and returns cleaned counts, optionally sorted numerically."""
     s = series.dropna().astype(str)
+    if s.empty:
+        return pd.Series(dtype=int) # Return empty series instead of None
+        
     if s.str.contains(';').any():
         s = s.str.split(';').explode()
     s = s.str.strip()
     
     def clean_format(val):
-        if not val: return val
+        if not val or val.lower() == 'nan': return ""
         val = re.sub(r'(?i)^other\s*-\s*', '', val).strip()
         return val[0].upper() + val[1:] if len(val) > 0 else val
         
@@ -26,17 +29,22 @@ def get_clean_value_counts(series, sort_numerically=False):
     s = s[s != ''] 
     counts = s.value_counts()
 
-    if sort_numerically:
+    if sort_numerically and not counts.empty:
         try:
             def extract_num(text):
+                # Search for digits; default to a very high number if none found
                 match = re.search(r'(\d+)', str(text))
-                return int(match.group(1)) if match else float('inf')
+                return int(match.group(1)) if match else 999999
             
-            sorted_index = sorted(counts.index, key=extract_num)
-            counts = counts.reindex(sorted_index)
-        except Exception:
-            pass 
-        return counts
+            # Create a sorted list of the unique index labels
+            sorted_labels = sorted(counts.index, key=extract_num)
+            # Reindex the counts based on that sorted list
+            counts = counts.reindex(sorted_labels)
+        except Exception as e:
+            # If sorting fails, just return the original counts to prevent app crash
+            pass
+            
+    return counts
 
 def is_continuous_data(series, col_name):
     """Detects if a column should be treated as continuous (Histogram)."""
