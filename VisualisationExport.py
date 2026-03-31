@@ -229,7 +229,6 @@ pdf_mode = st.sidebar.radio("PDF Content:", ["Tables Only", "Graphs Only", "Tabl
 
 st.sidebar.divider()
 st.sidebar.header("Excel Report Settings")
-valid_graph_cols = [c for c in q_columns if c not in pii_to_strip]
 report_graph_cols = st.sidebar.multiselect("Columns for Visualisation:", options=valid_graph_cols, default=valid_graph_cols)
 
 # --- 5. VISUALIZATION PREVIEW (TABBED) ---
