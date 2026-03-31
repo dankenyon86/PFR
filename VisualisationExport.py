@@ -297,7 +297,7 @@ with col_dl1:
                 
                 summary_sheet.merge_range('A1:H3', f"{clean_project_name.upper()} - METRICS", summary_header_fmt)
                 if os.path.exists('PFRLogo.png'):
-                    summary_sheet.insert_image('A1', 'PFRLogo.png', {'x_scale': 0.5, 'y_scale': 0.5})
+                    summary_sheet.insert_image('A1', 'PFRLogo.png', {'x_scale': 1, 'y_scale': 1})
 
                 summary_sheet.set_column('A:A', 40)
                 summary_sheet.set_column('B:C', 12)
@@ -324,8 +324,8 @@ with col_dl1:
                         summary_sheet.write(r, 2, row_data['Percentage'], border_pct_fmt)
                     
                     # Calculate Dynamic Sizing
-                    dynamic_height = max(200, len(stats_df) * 45)
-                    dynamic_width = max(200, len(stats_df) * 50)
+                    dynamic_height = max(50, len(stats_df) * 45)
+                    dynamic_width = max(250, len(stats_df) * 50)
                     
                     # --- CHART 1: COUNTS (ORANGE) ---
                     chart1 = workbook.add_chart({'type': 'column' if is_cont else 'bar'})
