@@ -168,15 +168,6 @@ def create_pdf_report(df, report_cols, project_name, mode):
 
 # --- 3. STREAMLIT UI & INTERFACE ---
 st.set_page_config(page_title="PFR Client Reporting Tool", layout="wide")
-
-st.markdown("""
-<style>
-span[data-baseweb="tag"] { background-color: #4F5D75 !important; }
-</style>
-""", unsafe_allow_html=True)
-
-st.markdown("""<style>@import url('https://fonts.googleapis.com/css2?family=Lexend:wght@300;400;700&display=swap'); html, body, [class*="css"]  {font-family: 'Lexend', sans-serif;}</style>""", unsafe_allow_html=True)
-
 if os.path.exists("PFRLogo.png"):
     st.sidebar.image("PFRLogo.png", width=400)
 
