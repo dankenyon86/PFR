@@ -315,14 +315,20 @@ with col_dl1:
                 for col_name in report_graph_cols:
                     is_cont = is_continuous_data(df[col_name], col_name)
                     stats_series = get_clean_value_counts(df[col_name], sort_numerically=is_cont)
-                    if stats_series.empty: continue
                     
-                    # Write Table Data
+                    if stats_series.empty or len(stats_series) == 0:
+                        continue
+                    
+                    stats_df = pd.DataFrame({
+                        'Count': stats_series, 
+                        'Percentage': stats_series / stats_series.sum()
+                    })
+                    num_rows = len(stats_df)
+
                     summary_sheet.write(current_row, 0, col_name, stat_header_fmt)
                     summary_sheet.write(current_row, 1, "Count", stat_header_fmt)
                     summary_sheet.write(current_row, 2, "Percent", stat_header_fmt)
                     
-                    stats_df = pd.DataFrame({'Count': stats_series, 'Percentage': stats_series / stats_series.sum()})
                     border_fmt = workbook.add_format({'border': 1, 'align': 'left'})
                     border_pct_fmt = workbook.add_format({'border': 1, 'num_format': '0.0%', 'align': 'right'})
                     
@@ -331,17 +337,44 @@ with col_dl1:
                         summary_sheet.write(r, 0, label, border_fmt)
                         summary_sheet.write(r, 1, row_data['Count'], border_fmt)
                         summary_sheet.write(r, 2, row_data['Percentage'], border_pct_fmt)
-                    
-                    # --- CHART 1: COUNTS (ORANGE) ---
-                    chart1 = workbook.add_chart({'type': 'column' if is_cont else 'bar'})
-                    chart1.set_size({'width': CHART_WIDTH, 'height': CHART_HEIGHT})
-                    summary_sheet.insert_chart(current_row, 4, chart1)
 
-                    # --- CHART 2: PERCENTAGE (BLUE) ---
-                    chart2 = workbook.add_chart({'type': 'column' if is_cont else 'bar'})
-                    chart2.set_size({'width': CHART_WIDTH, 'height': CHART_HEIGHT})
-                    summary_sheet.insert_chart(current_row, 14, chart2)
-                    current_row += 25 
+                    if num_rows > 0:
+                        categories_range = ['Summary', current_row + 1, 0, current_row + num_rows, 0]
+                        values_count_range = ['Summary', current_row + 1, 1, current_row + num_rows, 1]
+                        values_pct_range = ['Summary', current_row + 1, 2, current_row + num_rows, 2]
+
+                        # --- CHART 1: COUNTS (ORANGE) ---
+                        chart1 = workbook.add_chart({'type': 'column' if is_cont else 'bar'})
+                        chart1.set_size({'width': CHART_WIDTH, 'height': CHART_HEIGHT})
+                        chart1.add_series({
+                            'categories': categories_range,
+                            'values':     values_count_range,
+                            'fill': {'color': '#EF8354'}, 
+                            'gap': 20 if is_cont else 60,
+                            'name': 'Response Count'
+                        })
+                        chart1.set_title({'name': f'Volume: {col_name}'})
+                        chart1.set_legend({'none': True})
+                        if not is_cont: chart1.set_y_axis({'reverse': True})
+                        summary_sheet.insert_chart(current_row, 4, chart1)
+
+                        # --- CHART 2: PERCENTAGE (BLUE) ---
+                        chart2 = workbook.add_chart({'type': 'column' if is_cont else 'bar'})
+                        chart2.set_size({'width': CHART_WIDTH, 'height': CHART_HEIGHT})
+                        chart2.add_series({
+                            'categories': categories_range,
+                            'values':     values_pct_range,
+                            'fill': {'color': '#4F5D75'}, 
+                            'gap': 20 if is_cont else 60,
+                            'name': 'Percentage %'
+                        })
+                        chart2.set_title({'name': f'Percentage: {col_name}'})
+                        chart2.set_legend({'none': True})
+                        if not is_cont: chart2.set_y_axis({'reverse': True})
+                        
+                        summary_sheet.insert_chart(current_row, 14, chart2)
+                    
+                    current_row += max(num_rows + 5, 25)
 
                 display_df.to_excel(writer, sheet_name='Anonymized Data', index=False)
                 data_sheet = writer.sheets['Anonymized Data']
