@@ -131,67 +131,89 @@ if resp_file and screen_file:
         st.session_state.consistency_pairs += 1
         st.rerun()
 
-    # --- STEP 3: AUDIT ENGINE (WITH PROGRESS BAR) ---
+# --- STEP 3: AUDIT ENGINE ---
     if st.button("Run Full Audit"):
-        cols_to_map = list(set(mapping.values()))
-        if not cols_to_map:
-            st.error("⚠️ Mapping Required: Please map at least one question in Step 1 before running the audit.")
-            st.stop()
+        # FIX 1: Copy the data FIRST before doing anything else
         df = df_raw.copy()
+        
+        # FIX 2: Clean up old results so they don't interfere
         res_cols = ['Status', 'Reason', 'Carrier', 'Risk %', 'Pattern', 'ClusterFlag', 'RejectSource']
-        df = df.drop(columns=[c for c in res_cols if c in df.columns])
+        df = df.drop(columns=[c for c in res_cols if c in df.columns], errors='ignore')
         
         # --- PROGRESS UI ---
         status_text = st.empty()
         prog_bar = st.progress(0)
 
+        # FIX 3: Identify which columns were actually mapped
+        cols_to_use = [col for col in mapping.values() if col in df.columns]
+
         # 1. Pattern Clustering
         status_text.text("Step 1/3: Analyzing Answer Patterns")
-        df['Pattern'] = df[list(set(mapping.values()))].astype(str).agg('-'.join, axis=1)
-        vectorizer = TfidfVectorizer()
-        X = vectorizer.fit_transform(df['Pattern'].tolist())
-        sim_matrix = cosine_similarity(X)
-        groups, visited = [], set()
-        for i in range(len(df)):
-            if i in visited: continue
-            group = [i]
-            for j in range(i+1, len(df)):
-                if sim_matrix[i, j] > cluster_threshold: group.append(j); visited.add(j)
-            if len(group) > 1: groups.append(group)
-        df['ClusterFlag'] = df.index.isin([idx for g in groups for idx in g])
+        
+        if not cols_to_use:
+            # Safety: If no columns mapped, we create a dummy pattern so the app doesn't crash
+            st.warning("⚠️ No columns mapped in Step 1. Skipping Pattern Analysis.")
+            df['Pattern'] = "No Pattern Data"
+            df['ClusterFlag'] = False
+            groups = []
+        else:
+            # Create the pattern string (e.g., "Male-London-Director")
+            df['Pattern'] = df[cols_to_use].fillna('N/A').astype(str).agg('-'.join, axis=1)
+            
+            # Vectorize and find clusters
+            vectorizer = TfidfVectorizer()
+            X = vectorizer.fit_transform(df['Pattern'].tolist())
+            sim_matrix = cosine_similarity(X)
+            
+            groups, visited = [], set()
+            for i in range(len(df)):
+                if i in visited: continue
+                group = [i]
+                for j in range(i+1, len(df)):
+                    if sim_matrix[i, j] > cluster_threshold: 
+                        group.append(j)
+                        visited.add(j)
+                if len(group) > 1: groups.append(group)
+            
+            df['ClusterFlag'] = df.index.isin([idx for g in groups for idx in g])
+        
         prog_bar.progress(33)
 
-        # 2. Parallel API
+        # 2. Parallel API (Phone Checks)
         status_text.text("Step 2/3: Checking Phone Numbers (API)")
         api_results = {}
         if phone_col:
             unique_phones = df[phone_col].dropna().unique()
             total_phones = len(unique_phones)
-            with ThreadPoolExecutor(max_workers=10) as executor:
-                futures = {executor.submit(fetch_ipqs, p, ipqs_key, iso, dial): p for p in unique_phones}
-                for i, f in enumerate(as_completed(futures)):
-                    r = f.result()
-                    if r: api_results[r["phone"]] = r
-                    prog_bar.progress(33 + int((i/total_phones)*33))
-
+            if total_phones > 0:
+                with ThreadPoolExecutor(max_workers=10) as executor:
+                    futures = {executor.submit(fetch_ipqs, p, ipqs_key, iso, dial): p for p in unique_phones}
+                    for i, f in enumerate(as_completed(futures)):
+                        r = f.result()
+                        if r: api_results[r["phone"]] = r
+                        prog_bar.progress(33 + int((i/total_phones)*33))
+        
+        # 3. Finalizing
         status_text.text("Step 3/3: Finalizing Status & Terminology")
 
         def audit_row(row):
-            behav_score = weight_pattern if row['ClusterFlag'] else 0
+            # Penalties from Pattern Clustering (Step 1)
+            behav_score = weight_pattern if row.get('ClusterFlag') else 0
+            
+            # Penalties from Mismatch Pairs (Step 2)
             for ca, cb in consistency_rules:
                 if normalize(row.get(ca)) != normalize(row.get(cb)): 
                     behav_score += weight_mismatch
             
+            # Instant Reject: Screener Logic Rules
             for q, bads in final_rules.items():
                 if str(row.get(mapping[q])).strip() in bads:
                     return pd.Series(["Rejected", f"Screener: {q[:20]}", "N/A", behav_score, "Screener Logic"])
             
+            # API Scoring
             api_data = api_results.get(row.get(phone_col), {})
             fraud_score = api_data.get('fraud_score', 0)
-            
-            carrier = api_data.get('carrier')
-            if not carrier:
-                carrier = "Limited (Free Tier)" if api_data.get('success') else "API Error/No Match"
+            carrier = api_data.get('carrier', "N/A")
 
             if reject_voip and api_data.get('voip'): 
                 return pd.Series(["Rejected", "VOIP Detected", carrier, 100, "Fraud Engine"])
@@ -206,10 +228,8 @@ if resp_file and screen_file:
             return pd.Series(["Approved", "Pass", carrier, 0, "N/A"])
 
         df[['Status', 'Reason', 'Carrier', 'Risk %', 'RejectSource']] = df.apply(audit_row, axis=1)
-        prog_bar.progress(100)
-        status_text.success("Audit Complete!")
         
-        # Save to Session State
+        # Save to Session State and refresh
         st.session_state.audit_results = df
         st.session_state.groups = groups
         st.rerun()
