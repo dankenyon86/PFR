@@ -23,7 +23,7 @@ if 'groups' not in st.session_state:
     st.session_state.groups = []
 
 # --- 3. SIDEBAR SETTINGS ---
-st.sidebar.header("⚙️ Risk & Logic Settings")
+st.sidebar.header("Risk & Logic Settings")
 ipqs_key = "H67E8mmH292LeSaTgbrufW5qzj68VEnG" 
 
 country_map = {"UK": ("GB", "44"), "US": ("US", "1"), "AU": ("AU", "61")}
@@ -36,7 +36,7 @@ weight_pattern = st.sidebar.slider("Identical Pattern Penalty", 0, 50, 40)
 cluster_threshold = st.sidebar.slider("Bot Cluster Sensitivity", 0.7, 0.99, 0.9)
 reject_voip = st.sidebar.checkbox("Auto-Reject VOIP", value=True)
 
-if st.sidebar.button("♻️ Reset App"):
+if st.sidebar.button("Reset App"):
     st.session_state.audit_results = None
     st.session_state.consistency_pairs = 1
     st.rerun()
@@ -45,21 +45,26 @@ if st.sidebar.button("♻️ Reset App"):
 def normalize(x):
     return re.sub(r'[^a-z0-9]', '', str(x).lower()).strip()
 
-def fetch_ipqs(phone, api_key, iso_code, dial_code):
+def fetch_ipqs(phone, api_key, default_iso, default_dial):
     try:
         clean = re.sub(r'[^0-9+]', '', str(phone))
-        if not clean.startswith('+'):
+        if clean.startswith('+'):
+            clean_num = clean.replace('+', '')
+            url = f"https://www.ipqualityscore.com/api/json/phone/{api_key}/{clean_num}"
+            params = {'strictness': 1}
+        else:
             if clean.startswith('0'): clean = clean[1:]
-            clean = dial_code + clean
-        else: clean = clean.replace('+', '')
-        url = f"https://www.ipqualityscore.com/api/json/phone/{api_key}/{clean}"
-        res = requests.get(url, params={'country': iso_code, 'strictness': 1}, timeout=5)
-        data = res.json()
-        return data if data.get("success") else None
-    except: return None
+            clean_num = default_dial + clean
+            url = f"https://www.ipqualityscore.com/api/json/phone/{api_key}/{clean_num}"
+            params = {'country': default_iso, 'strictness': 1}
+
+        res = requests.get(url, params=params, timeout=5)
+        return res.json()
+    except:
+        return None
 
 # --- 5. LOADERS ---
-st.title("🕵️ PFR Candidate Checker")
+st.title("PFR Candidate Checker")
 col1, col2 = st.columns(2)
 resp_file = col1.file_uploader("1. Upload Call List (Data)", type=["csv", "xlsx"])
 screen_file = col2.file_uploader("2. Upload PFR Screener (Logic)", type=["xlsx"])
@@ -82,7 +87,7 @@ if resp_file and screen_file:
     q_col, a_col = df_screen.columns[0], df_screen.columns[1]
     so_col = next((c for c in df_screen.columns if any(k in str(c).lower() for k in ["screen-out", "disqualify"])), None)
     
-    st.header("⚙️ Step 1: Mapping")
+    st.header("Step 1: Mapping")
     final_rules, mapping = {}, {}
     for q_text in df_screen[q_col].unique():
         if pd.isna(q_text): continue
@@ -100,7 +105,7 @@ if resp_file and screen_file:
             final_rules[q_text] = c2.multiselect("Reject if:", options, default=[r for r in auto_rej if r in options], key=f"r_{hash(q_text)}")
 
     # --- STEP 2: COMPARISON PAIRS ---
-    st.header("⚖️ Step 2: Comparison")
+    st.header("Step 2: Comparison")
     consistency_rules = []
     for i in range(st.session_state.consistency_pairs):
         c1, c2 = st.columns(2)
@@ -112,7 +117,7 @@ if resp_file and screen_file:
         st.rerun()
 
     # --- STEP 3: AUDIT ENGINE (WITH PROGRESS BAR) ---
-    if st.button("🚀 Run Full Audit"):
+    if st.button("Run Full Audit"):
         df = df_raw.copy()
         res_cols = ['Status', 'Reason', 'Carrier', 'Risk %', 'Pattern', 'ClusterFlag', 'RejectSource']
         df = df.drop(columns=[c for c in res_cols if c in df.columns])
@@ -122,7 +127,7 @@ if resp_file and screen_file:
         prog_bar = st.progress(0)
 
         # 1. Pattern Clustering
-        status_text.text("🔍 Step 1/3: Analyzing Answer Patterns...")
+        status_text.text("Step 1/3: Analyzing Answer Patterns")
         df['Pattern'] = df[list(set(mapping.values()))].astype(str).agg('-'.join, axis=1)
         vectorizer = TfidfVectorizer()
         X = vectorizer.fit_transform(df['Pattern'].tolist())
@@ -138,7 +143,7 @@ if resp_file and screen_file:
         prog_bar.progress(33)
 
         # 2. Parallel API
-        status_text.text("📡 Step 2/3: Checking Phone Numbers (API)...")
+        status_text.text("Step 2/3: Checking Phone Numbers (API)")
         api_results = {}
         if phone_col:
             unique_phones = df[phone_col].dropna().unique()
@@ -150,26 +155,40 @@ if resp_file and screen_file:
                     if r: api_results[r["phone"]] = r
                     prog_bar.progress(33 + int((i/total_phones)*33))
 
-        # 3. Final Scoring Logic
-        status_text.text("⚖️ Step 3/3: Finalizing Status & Terminology...")
+        status_text.text("Step 3/3: Finalizing Status & Terminology")
+
         def audit_row(row):
             behav_score = weight_pattern if row['ClusterFlag'] else 0
             for ca, cb in consistency_rules:
-                if normalize(row.get(ca)) != normalize(row.get(cb)): behav_score += weight_mismatch
+                if normalize(row.get(ca)) != normalize(row.get(cb)): 
+                    behav_score += weight_mismatch
+            
             for q, bads in final_rules.items():
                 if str(row.get(mapping[q])).strip() in bads:
                     return pd.Series(["Rejected", f"Screener: {q[:20]}", "N/A", behav_score, "Screener Logic"])
+            
             api_data = api_results.get(row.get(phone_col), {})
-            fraud_score, carrier = api_data.get('fraud_score', 0), api_data.get('carrier', 'Valid')
-            if reject_voip and api_data.get('voip'): return pd.Series(["Rejected", "VOIP Detected", carrier, 100, "Fraud Engine"])
+            fraud_score = api_data.get('fraud_score', 0)
+            
+            carrier = api_data.get('carrier')
+            if not carrier:
+                carrier = "Limited (Free Tier)" if api_data.get('success') else "API Error/No Match"
+
+            if reject_voip and api_data.get('voip'): 
+                return pd.Series(["Rejected", "VOIP Detected", carrier, 100, "Fraud Engine"])
+            
             total_risk = min(100, behav_score + fraud_score)
-            if total_risk > 70: return pd.Series(["Rejected", "High Fraud Score", carrier, total_risk, "Fraud Engine"])
-            elif total_risk > 0: return pd.Series(["Flagged", "Suspicious Behavior", carrier, total_risk, "Behavioral Flag"])
+            
+            if total_risk > 70: 
+                return pd.Series(["Rejected", "High Fraud Score", carrier, total_risk, "Fraud Engine"])
+            elif total_risk > 0: 
+                return pd.Series(["Flagged", "Suspicious Behavior", carrier, total_risk, "Behavioral Flag"])
+            
             return pd.Series(["Approved", "Pass", carrier, 0, "N/A"])
 
         df[['Status', 'Reason', 'Carrier', 'Risk %', 'RejectSource']] = df.apply(audit_row, axis=1)
         prog_bar.progress(100)
-        status_text.success("✅ Audit Complete!")
+        status_text.success("Audit Complete!")
         
         # Save to Session State
         st.session_state.audit_results = df
@@ -182,14 +201,14 @@ if resp_file and screen_file:
         groups = st.session_state.groups
         
         st.divider()
-        st.header("📊 Logic Summary")
+        st.header("Logic Summary")
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("✅ Approved", (df['Status'] == "Approved").sum())
-        c2.metric("🚩 Flagged", (df['Status'] == "Flagged").sum())
-        c3.metric("❌ Rejected", (df['Status'] == "Rejected").sum())
-        c4.metric("🛡️ Fraud Engine Hits", (df['RejectSource'] == "Fraud Engine").sum())
+        c1.metric("Approved", (df['Status'] == "Approved").sum())
+        c2.metric("Flagged", (df['Status'] == "Flagged").sum())
+        c3.metric("Rejected", (df['Status'] == "Rejected").sum())
+        c4.metric("Fraud Engine Hits", (df['RejectSource'] == "Fraud Engine").sum())
 
-        t_list, t_cluster, t_qc, t_export = st.tabs(["📋 Full List", "🚩 Clusters", "🔍 QC & Manual Review", "📥 Export"])
+        t_list, t_cluster, t_qc, t_export = st.tabs(["Full List", "Clusters", "QC & Manual Review", "Export"])
         
         with t_list:
             view = st.radio("Status View:", ["All", "Approved", "Flagged", "Rejected"], horizontal=True, key="view_radio")
