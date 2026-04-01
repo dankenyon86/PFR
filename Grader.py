@@ -48,6 +48,7 @@ def normalize(x):
 def fetch_ipqs(phone, api_key, default_iso, default_dial):
     try:
         clean = re.sub(r'[^0-9+]', '', str(phone))
+        
         if clean.startswith('+'):
             clean_num = clean.replace('+', '')
             url = f"https://www.ipqualityscore.com/api/json/phone/{api_key}/{clean_num}"
@@ -59,7 +60,19 @@ def fetch_ipqs(phone, api_key, default_iso, default_dial):
             params = {'country': default_iso, 'strictness': 1}
 
         res = requests.get(url, params=params, timeout=5)
-        return res.json()
+        data = res.json()
+        
+        if not data.get("success"):
+            return {
+                "success": False,
+                "phone": phone,
+                "fraud_score": 0,
+                "carrier": data.get("message", "API Error"),
+                "voip": False
+            }
+            
+        data["phone"] = phone
+        return data
     except:
         return None
 
