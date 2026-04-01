@@ -104,6 +104,8 @@ if resp_file and screen_file:
     final_rules, mapping = {}, {}
     for q_text in df_screen[q_col].unique():
         if pd.isna(q_text): continue
+        if any(stop in str(q_text).upper() for stop in ["END OF", "TOTAL", "METADATA"]):
+            continue
         q_rows = df_screen[df_screen[q_col] == q_text]
         options = [str(o).strip() for o in q_rows[a_col].unique().tolist() if pd.notna(o)]
         q_id = re.search(r'q\d+', str(q_text).lower()).group(0) if re.search(r'q\d+', str(q_text).lower()) else normalize(q_text)[:15]
@@ -131,6 +133,10 @@ if resp_file and screen_file:
 
     # --- STEP 3: AUDIT ENGINE (WITH PROGRESS BAR) ---
     if st.button("Run Full Audit"):
+        cols_to_map = list(set(mapping.values()))
+        if not cols_to_map:
+            st.error("⚠️ Mapping Required: Please map at least one question in Step 1 before running the audit.")
+            st.stop()
         df = df_raw.copy()
         res_cols = ['Status', 'Reason', 'Carrier', 'Risk %', 'Pattern', 'ClusterFlag', 'RejectSource']
         df = df.drop(columns=[c for c in res_cols if c in df.columns])
