@@ -78,7 +78,7 @@ def create_pdf_report(df, report_cols, project_name, mode):
     else:
         pdf.ln(20)
 
-    pdf.set_font("Calibri", 'B', 22)
+    pdf.set_font("Arial", 'B', 22)
     pdf.set_text_color(45, 49, 66)
     pdf.cell(0, 15, clean_unicode("Project Summary Report"), ln=True)
 
