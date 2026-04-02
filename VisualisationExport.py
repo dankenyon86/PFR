@@ -10,6 +10,17 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 # --- 1. CORE UTILITIES ---
+def clean_unicode(text):
+    """
+    Sanitizes input text for FPDF/Excel compatibility.
+    Replaces characters that cannot be rendered in Latin-1.
+    """
+    if text is None:
+        return ""
+    text = str(text)
+    # Simple encoding/decoding to strip non-latin-1 chars to prevent FPDF crash
+    return text.encode('latin-1', 'replace').decode('latin-1')
+
 def get_clean_value_counts(series, sort_numerically=False):
     """Splits delimited strings and returns cleaned counts, optionally sorted numerically."""
     s = series.dropna().astype(str)
@@ -37,7 +48,7 @@ def get_clean_value_counts(series, sort_numerically=False):
             
             sorted_labels = sorted(counts.index, key=extract_num)
             counts = counts.reindex(sorted_labels)
-        except Exception as e:
+        except Exception:
             pass
             
     return counts
@@ -57,19 +68,13 @@ def is_continuous_data(series, col_name):
 
 # --- 2. PDF GENERATION ENGINE ---
 def create_pdf_report(df, report_cols, project_name, mode):
-    pdf = FPDF()
-    try:
-        pdf.add_font('Lexend', '', 'Lexend-Regular.ttf', uni=True)
-        pdf.add_font('Lexend', 'B', 'Lexend-Bold.ttf', uni=True)
-        font_name = "Lexend"
-    except:
-        font_name = "Arial"
+    pdf = FPDF(orientation='P', unit='mm', format='A4')
+    
+    # Removed Lexend logic entirely to avoid "Undefined Font" or FileNotFoundError
+    font_name = "Arial" 
 
     pdf.set_auto_page_break(auto=True, margin=15)
-    pdf.add_page()
-    pdf.set_font(font_name, 'B', 22)
-    pdf.cell(0, 15, "Project Summary Report", ln=True)
-
+    
     # --- TITLE PAGE ---
     pdf.add_page()
     if os.path.exists("PFRLogo.png"):
@@ -78,11 +83,12 @@ def create_pdf_report(df, report_cols, project_name, mode):
     else:
         pdf.ln(20)
 
-    pdf.set_font("Arial", 'B', 22)
+    # Style 'B' handles the bolding correctly for FPDF
+    pdf.set_font(font_name, 'B', 22)
     pdf.set_text_color(45, 49, 66)
     pdf.cell(0, 15, clean_unicode("Project Summary Report"), ln=True)
 
-    pdf.set_font("Arial", '', 12)
+    pdf.set_font(font_name, '', 12)
     pdf.set_text_color(79, 93, 117)
     pdf.cell(0, 8, clean_unicode(f"Project: {project_name}"), ln=True)
     pdf.cell(0, 8, f"Date: {datetime.date.today().strftime('%d %B %Y')}", ln=True)
@@ -91,7 +97,7 @@ def create_pdf_report(df, report_cols, project_name, mode):
     # --- CONTENT PAGES ---
     for col in report_cols:
         pdf.add_page()
-        pdf.set_font("Arial", 'B', 12)
+        pdf.set_font(font_name, 'B', 12)
         pdf.set_fill_color(79, 93, 117)
         pdf.set_text_color(255, 255, 255)
         pdf.cell(0, 10, clean_unicode(f" Metric: {col}"), ln=True, fill=True)
@@ -106,13 +112,13 @@ def create_pdf_report(df, report_cols, project_name, mode):
         if "Tables" in mode:
             pdf.ln(5)
             pdf.set_text_color(0, 0, 0)
-            pdf.set_font("Arial", 'B', 10)
+            pdf.set_font(font_name, 'B', 10)
             pdf.set_fill_color(240, 240, 240)
             pdf.cell(110, 8, " Response Option", border=1, fill=True)
             pdf.cell(35, 8, " Count", border=1, fill=True)
             pdf.cell(35, 8, " Percentage", border=1, fill=True, ln=True)
 
-            pdf.set_font("Arial", '', 10)
+            pdf.set_font(font_name, '', 10)
             for label, count in stats.items():
                 clean_label = clean_unicode(str(label))
                 clean_label = clean_label[:55] + ('...' if len(clean_label) > 55 else '')
@@ -124,15 +130,15 @@ def create_pdf_report(df, report_cols, project_name, mode):
         if "Graphs" in mode:
             fig, ax = plt.subplots(figsize=(8, 4))
             is_cont = is_continuous_data(df[col], col)
-            stats = get_clean_value_counts(df[col], sort_numerically=is_cont)
+            stats_graph = get_clean_value_counts(df[col], sort_numerically=is_cont)
             
             if is_cont:
-                ax.bar(stats.index.astype(str), stats.values, color='#EF8354', width=1.0, edgecolor='white')
+                ax.bar(stats_graph.index.astype(str), stats_graph.values, color='#EF8354', width=1.0, edgecolor='white')
                 ax.set_title(f"Numerical Distribution: {col}", fontsize=10)
                 plt.xticks(rotation=45)
             else:
-                labels = [clean_unicode(str(l))[:30] for l in stats.index]
-                ax.barh(labels, stats.values, color='#EF8354')
+                labels = [clean_unicode(str(l))[:30] for l in stats_graph.index]
+                ax.barh(labels, stats_graph.values, color='#EF8354')
                 ax.invert_yaxis()
                 ax.set_title(f"Categorical Breakdown: {col}", fontsize=10)
             
@@ -155,8 +161,6 @@ if os.path.exists("PFRLogo.png"):
     st.sidebar.image("PFRLogo.png", width=400)
 
 st.title("PFR Client Report Generator")
-st.markdown("Convert call lists into anonymised, client-ready Excel & PDF reports.")
-
 uploaded_file = st.file_uploader("Upload Call List", type=["csv", "xlsx"])
 
 if not uploaded_file:
@@ -169,34 +173,23 @@ if uploaded_file.name.endswith('.csv'):
 else:
     df = pd.read_excel(uploaded_file)
 
-# Qualification Status Mapping
+# FULL RESTORED STATUS MAP
 status_map = {
-1: 'Applied', '1': 'Applied',
-12: 'Unsuccessful Contact', '12': 'Unsuccessful Contact',
-13: 'Waiting For Client', '13': 'Waiting For Client',
-14: 'Not Suitable', '14': 'Not Suitable',
-15: 'Confirmed', '15': 'Confirmed',
-16: 'Cancelled', '16': 'Cancelled',
-17: 'Attended', '17': 'Attended',
-18: 'No Show', '18': 'No Show',
-19: 'Stand By', '19': 'Stand By',
-20: 'Dropout', '20': 'Dropout',
-21: 'Misrecruit', '21': 'Misrecruit',
-22: 'Suitable Invite', '22': 'Suitable Invite',
-23: 'Invited', '23': 'Invited',
-24: 'Email Reminder', '24': 'Email Reminder',
-25: 'Text Reminder', '25': 'Text Reminder',
-26: 'Past Deadline', '26': 'Past Deadline',
-27: 'Technical Issue Incomplete', '27': 'Technical Issue Incomplete',
-28: 'Misrecruit Completed', '28': 'Misrecruit Completed',
-29: 'Misrecruit Incomplete', '29': 'Misrecruit Incomplete',
-30: 'Completed Task', '30': 'Completed Task',
-31: 'Incomplete Task', '31': 'Incomplete Task',
-32: 'Didnt Follow Instructions', '32': 'Didnt Follow Instructions',
-33: 'Suitable', '33': 'Suitable',
-34: 'Fake', '34': 'Fake',
-35: 'Scheduled', '35': 'Scheduled',
-36: 'Screening', '36': 'Screening'
+    1: 'Applied', '1': 'Applied', 12: 'Unsuccessful Contact', '12': 'Unsuccessful Contact',
+    13: 'Waiting For Client', '13': 'Waiting For Client', 14: 'Not Suitable', '14': 'Not Suitable',
+    15: 'Confirmed', '15': 'Confirmed', 16: 'Cancelled', '16': 'Cancelled',
+    17: 'Attended', '17': 'Attended', 18: 'No Show', '18': 'No Show',
+    19: 'Stand By', '19': 'Stand By', 20: 'Dropout', '20': 'Dropout',
+    21: 'Misrecruit', '21': 'Misrecruit', 22: 'Suitable Invite', '22': 'Suitable Invite',
+    23: 'Invited', '23': 'Invited', 24: 'Email Reminder', '24': 'Email Reminder',
+    25: 'Text Reminder', '25': 'Text Reminder', 26: 'Past Deadline', '26': 'Past Deadline',
+    27: 'Technical Issue Incomplete', '27': 'Technical Issue Incomplete',
+    28: 'Misrecruit Completed', '28': 'Misrecruit Completed',
+    29: 'Misrecruit Incomplete', '29': 'Misrecruit Incomplete',
+    30: 'Completed Task', '30': 'Completed Task', 31: 'Incomplete Task', '31': 'Incomplete Task',
+    32: 'Didnt Follow Instructions', '32': 'Didnt Follow Instructions',
+    33: 'Suitable', '33': 'Suitable', 34: 'Fake', '34': 'Fake',
+    35: 'Scheduled', '35': 'Scheduled', 36: 'Screening', '36': 'Screening'
 }
 if 'Status' in df.columns:
     df['Status'] = df['Status'].replace(status_map)
@@ -207,23 +200,11 @@ headers = df.columns.tolist()
 st.sidebar.header("Privacy Settings")
 default_pii = [c for c in headers if any(k in c.lower() for k in ['phone', 'tel', 'email', 'name', 'mobile', 'address', 'postcode', 'ip'])]
 pii_to_strip = st.sidebar.multiselect("Columns to Strip (PII):", headers, default=default_pii)
+id_col = st.sidebar.selectbox("Anchor ID Column (Keep):", headers, index=0)
 
-default_id_index = 0
-for i, col in enumerate(headers):
-    if col.strip().lower() == 'participant id':
-        default_id_index = i
-        break
-id_col = st.sidebar.selectbox("Anchor ID Column (Keep):", headers, index=default_id_index)
-
-st.sidebar.divider()
-st.sidebar.header("PDF Export Options")
-q_columns = [c for c in headers]
-valid_graph_cols = [c for c in q_columns if c not in pii_to_strip]
+valid_graph_cols = [c for c in headers if c not in pii_to_strip]
 pdf_mode = st.sidebar.radio("PDF Content:", ["Tables Only", "Graphs Only", "Tables & Graphs"], index=2)
-
-st.sidebar.divider()
-st.sidebar.header("Excel Report Settings")
-report_graph_cols = st.sidebar.multiselect("Columns for Visualisation:", options=valid_graph_cols, default=valid_graph_cols)
+report_graph_cols = st.sidebar.multiselect("Columns for Visualisation:", options=valid_graph_cols, default=valid_graph_cols[:8])
 
 # --- 5. VISUALIZATION PREVIEW (TABBED) ---
 tab1, tab2 = st.tabs(["Live Distributions", "Anonymized Preview"])
@@ -248,7 +229,6 @@ with tab1:
 with tab2:
     display_df = df.drop(columns=pii_to_strip, errors='ignore')
     st.dataframe(display_df.head(50))
-    st.caption(f"Showing first 50 rows. Total rows: {len(df)}")
 
 # --- 6. EXPORT GENERATION ENGINE ---
 st.divider()
@@ -256,7 +236,7 @@ st.subheader("Generate Downloads")
 col_dl1, col_dl2 = st.columns(2)
 clean_project_name = uploaded_file.name.split('.')[0].replace('_', ' ').title()
 
-# --- EXCEL EXPORT ---
+# --- EXCEL EXPORT (FULL RESTORE) ---
 with col_dl1:
     if st.button("Generate Excel Report"):
         try:
@@ -268,23 +248,18 @@ with col_dl1:
                 title_page = workbook.add_worksheet('Project Overview')
                 title_page.hide_gridlines(2)
                 
-                # Formats for a professional look
-                main_title_fmt = workbook.add_format({'font_name': 'Lexend', 'bold': True, 'font_size': 26, 'font_color': '#2D3142', 'align': 'center'})
-                meta_fmt = workbook.add_format({'font_name': 'Lexend', 'font_size': 12, 'font_color': '#4F5D75', 'align': 'center'})
+                # Using 'Arial' or 'Calibri' with bold property (Never use 'Calibri B')
+                main_title_fmt = workbook.add_format({'font_name': 'Arial', 'bold': True, 'font_size': 26, 'font_color': '#2D3142', 'align': 'center'})
+                meta_fmt = workbook.add_format({'font_name': 'Arial', 'font_size': 12, 'font_color': '#4F5D75', 'align': 'center'})
                 accent_line_fmt = workbook.add_format({'bg_color': '#EF8354'}) 
 
-                # 1. Place Logo at the very top of the first page
                 if os.path.exists('PFRLogo.png'):
                     title_page.insert_image('A1', 'PFRLogo.png', {'x_scale': 0.075, 'y_scale': 0.075})
 
-                # 2. Project Info - Start at row 14 to leave clear space for the logo
                 title_page.merge_range('A14:I15', clean_project_name, main_title_fmt)
                 today_str = datetime.date.today().strftime("%d %B %Y")
                 title_page.merge_range('A17:I17', f"Created Date: {today_str}", meta_fmt)
                 title_page.merge_range('A18:I18', f"Total Sample Size: {len(df)} Respondents", meta_fmt)
-                
-                # Visual accent line
-                title_page.set_row(19, 3) 
                 title_page.merge_range('C20:G20', '', accent_line_fmt)
 
                 # --- SHEET 2: SUMMARY & CHARTS ---
@@ -293,28 +268,18 @@ with col_dl1:
                 summary_header_fmt = workbook.add_format({'bold': True, 'font_size': 16, 'font_color': '#FFFFFF', 'bg_color': '#2D3142', 'align': 'center', 'valign': 'vcenter'})
                 stat_header_fmt = workbook.add_format({'bold': True, 'border': 1, 'font_size': 11, 'bg_color': '#4F5D75', 'font_color': '#FFFFFF', 'align': 'center'})
                 
-                # Header Bar
                 summary_sheet.merge_range('A1:L3', f"{clean_project_name.upper()} - INSIGHTS", summary_header_fmt)
-                
-                # Column widths for readability
                 summary_sheet.set_column('A:A', 45)
                 summary_sheet.set_column('B:C', 15)
 
                 current_row = 5
-                CHART_WIDTH = 550
-                CHART_HEIGHT = 380
-
                 for col_name in report_graph_cols:
                     is_cont = is_continuous_data(df[col_name], col_name)
                     stats_series = get_clean_value_counts(df[col_name], sort_numerically=is_cont)
                     
-                    if stats_series.empty or len(stats_series) == 0:
-                        continue
+                    if stats_series.empty: continue
                     
-                    stats_df = pd.DataFrame({
-                        'Count': stats_series, 
-                        'Percentage': stats_series / stats_series.sum()
-                    })
+                    stats_df = pd.DataFrame({'Count': stats_series, 'Percentage': stats_series / stats_series.sum()})
                     num_rows = len(stats_df)
 
                     summary_sheet.write(current_row, 0, col_name, stat_header_fmt)
@@ -330,54 +295,25 @@ with col_dl1:
                         summary_sheet.write(r, 1, row_data['Count'], border_fmt)
                         summary_sheet.write(r, 2, row_data['Percentage'], border_pct_fmt)
 
-                    if num_rows > 0:
-                        categories_range = ['Summary', current_row + 1, 0, current_row + num_rows, 0]
-                        values_count_range = ['Summary', current_row + 1, 1, current_row + num_rows, 1]
-                        values_pct_range = ['Summary', current_row + 1, 2, current_row + num_rows, 2]
-
-                        # --- CHART 1: COUNTS (ORANGE) ---
-                        chart1 = workbook.add_chart({'type': 'column' if is_cont else 'bar'})
-                        chart1.set_size({'width': CHART_WIDTH, 'height': CHART_HEIGHT})
-                        chart1.add_series({
-                            'categories': categories_range,
-                            'values':     values_count_range,
-                            'fill': {'color': '#EF8354'}, 
-                            'gap': 20 if is_cont else 60,
-                            'name': 'Response Count'
-                        })
-                        chart1.set_title({'name': f'Volume: {col_name}'})
-                        chart1.set_legend({'none': True})
-                        if not is_cont: chart1.set_y_axis({'reverse': True})
-                        summary_sheet.insert_chart(current_row, 4, chart1)
-
-                        # --- CHART 2: PERCENTAGE (BLUE) ---
-                        chart2 = workbook.add_chart({'type': 'column' if is_cont else 'bar'})
-                        chart2.set_size({'width': CHART_WIDTH, 'height': CHART_HEIGHT})
-                        chart2.add_series({
-                            'categories': categories_range,
-                            'values':     values_pct_range,
-                            'fill': {'color': '#4F5D75'}, 
-                            'gap': 20 if is_cont else 60,
-                            'name': 'Percentage %'
-                        })
-                        chart2.set_title({'name': f'Percentage: {col_name}'})
-                        chart2.set_legend({'none': True})
-                        if not is_cont: chart2.set_y_axis({'reverse': True})
-                        
-                        summary_sheet.insert_chart(current_row, 14, chart2)
+                    # Insert Charts
+                    chart1 = workbook.add_chart({'type': 'column' if is_cont else 'bar'})
+                    chart1.add_series({
+                        'categories': ['Summary', current_row + 1, 0, current_row + num_rows, 0],
+                        'values':     ['Summary', current_row + 1, 1, current_row + num_rows, 1],
+                        'fill':       {'color': '#EF8354'},
+                        'name':       'Count'
+                    })
+                    summary_sheet.insert_chart(current_row, 4, chart1)
                     
-                    current_row += max(num_rows + 5, 25)
+                    current_row += max(num_rows + 5, 20)
 
                 display_df.to_excel(writer, sheet_name='Anonymized Data', index=False)
-                data_sheet = writer.sheets['Anonymized Data']
-                data_sheet.freeze_panes(1, 0)
-                data_sheet.set_column(0, len(display_df.columns) - 1, 20)
-
+            
             st.download_button("📥 Download Excel Report", output.getvalue(), f"PFR_Report_{clean_project_name}.xlsx")
         except Exception as e:
             st.error(f"Excel Error: {e}")
 
-# --- PDF EXPORT ---
+# --- PDF EXPORT (FULL RESTORE) ---
 with col_dl2:
     if st.button("Generate PDF Summary"):
         try:
